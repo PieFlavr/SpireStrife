@@ -64,5 +64,5 @@ Clone the repository
 git clone https://github.com/<your-repo>/SpireStrife.git
 cd SpireStrife
 ```
-Open the project in Unity (version X.Y.Z or newer).
+Open the project in Unity (version 2022.3.20f or newer).
 Press Play in the Unity Editor to start the match against AI.
