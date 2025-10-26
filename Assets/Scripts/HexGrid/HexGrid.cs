@@ -20,7 +20,7 @@ public class HexGrid : MonoBehaviour
     public Vector2Int gridSize = new Vector2Int(10, 10); //defaulted to 10x10 axial
 
     /// <summary>
-    /// The distance between adjacent hex cell centers.
+    /// The distance between adjacent hex cell center based on prefab dimensions.
     /// </summary>
     public float cellSpacing = 1.0f;
 
@@ -34,6 +34,16 @@ public class HexGrid : MonoBehaviour
     /// Dictionary storing all HexCells by their axial coordinates for efficient lookup.
     /// </summary>
     private Dictionary<Vector2Int, HexCell> cells;
+
+    /// <summary>
+    /// Cached previous grid size to detect inspector changes during runtime.
+    /// </summary>
+    private Vector2Int previousGridSize;
+
+    /// <summary>
+    /// Cached previous cell spacing to detect inspector changes during runtime.
+    /// </summary>
+    private float previousCellSpacing;
 
     /// <summary>
     /// Axial coordinate direction vectors for the six hex neighbors.
@@ -55,6 +65,41 @@ public class HexGrid : MonoBehaviour
     private void Awake()
     {
         InitializeGrid();
+
+        previousGridSize = gridSize;
+        previousCellSpacing = cellSpacing;
+
+        if (Application.isPlaying)
+        {
+            StartCoroutine(MonitorInspectorChanges());
+        }
+    }
+
+    /// <summary>
+    /// Called when values are changed in the Unity Inspector.
+    /// Validates grid parameters and triggers rebuild when appropriate.
+    /// </summary>
+    private void OnValidate()
+    {
+        // Clamp values to valid ranges
+        gridSize.x = Mathf.Max(1, gridSize.x);
+        gridSize.y = Mathf.Max(1, gridSize.y);
+        cellSpacing = Mathf.Max(0.1f, cellSpacing);
+
+        // In play mode, rebuild immediately when values change
+        if (Application.isPlaying && cells != null)
+        {
+            RebuildGrid();
+        }
+        // In edit mode, delay rebuild to avoid Unity editor conflicts
+        else if (!Application.isPlaying && transform.childCount > 0)
+        {
+        #if UNITY_EDITOR
+            UnityEditor.EditorApplication.delayCall += () => {
+                if (this != null) RebuildGrid();
+            };
+        #endif
+        }
     }
 
     /// <summary>
@@ -106,6 +151,7 @@ public class HexGrid : MonoBehaviour
     /// <returns>World position for the hex cell</returns>
     private Vector3 AxialToWorldPosition(Vector2Int axialCoord)
     {
+        // Should pprobably double check this formula later...
         float x = cellSpacing * (3.0f / 2.0f * axialCoord.x);
         float z = cellSpacing * (Mathf.Sqrt(3.0f) / 2.0f * axialCoord.x + Mathf.Sqrt(3.0f) * axialCoord.y);
         return new Vector3(x, 0, z);
@@ -120,6 +166,27 @@ public class HexGrid : MonoBehaviour
     {
         cells.TryGetValue(axialCoord, out HexCell cell);
         return cell;
+    }
+
+    /// <summary>
+    /// Monitors inspector values during play mode and rebuilds grid when changes are detected.
+    /// Runs continuously during gameplay to provide reactive updates.
+    /// </summary>
+    private IEnumerator MonitorInspectorChanges()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(0.5f); // Check twice per second
+
+            // Detect if any values have changed
+            if (gridSize != previousGridSize || !Mathf.Approximately(cellSpacing, previousCellSpacing))
+            {
+                Debug.Log($"HexGrid: Inspector values changed. Rebuilding grid...");
+                previousGridSize = gridSize;
+                previousCellSpacing = cellSpacing;
+                RebuildGrid();
+            }
+        }
     }
 
     /// <summary>
@@ -163,5 +230,41 @@ public class HexGrid : MonoBehaviour
     public IEnumerable<HexCell> GetAllCells()
     {
         return cells.Values;
+    }
+
+    /// <summary>
+    /// Clears all existing HexCells from the grid.
+    /// Used when rebuilding the grid with new parameters.
+    /// </summary>
+    private void ClearGrid()
+    {
+        if (cells != null)
+        {
+            cells.Clear();
+        }
+
+        // Destroy all child cell GameObjects
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            if (Application.isPlaying)
+            {
+                Destroy(transform.GetChild(i).gameObject);
+            }
+            else
+            {
+                DestroyImmediate(transform.GetChild(i).gameObject);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the entire grid with current inspector values.
+    /// Clears existing cells and creates new ones based on updated parameters.
+    /// </summary>
+    [ContextMenu("Rebuild Grid")]
+    public void RebuildGrid()
+    {
+        ClearGrid();
+        InitializeGrid();
     }
 }
