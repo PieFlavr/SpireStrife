@@ -14,10 +14,10 @@ using UnityEngine;
 public class HexGrid : MonoBehaviour
 {
     /// <summary>
-    /// The dimensions of the hex grid (width x height in cells).
+    /// The axial dimensions of the hex grid (width x height in cells).
     /// </summary>
     [Header("Grid Configuration")]
-    public Vector2Int gridSize = new Vector2Int(10, 10);
+    public Vector2Int gridSize = new Vector2Int(10, 10); //defaulted to 10x10 axial
 
     /// <summary>
     /// The distance between adjacent hex cell centers.
