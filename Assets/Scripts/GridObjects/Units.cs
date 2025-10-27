@@ -314,6 +314,9 @@ public class Units : GridObject
             }
         }
 
+        if (targetObject is SpireConstruct spire)
+            spire.OnUnitsArrived(this);
+
         plannedPath = null;
         targetObject = null;
     }
