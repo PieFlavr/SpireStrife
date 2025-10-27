@@ -80,6 +80,7 @@ public class GameMgr : MonoBehaviour
                 randomHeight,
                 cell.transform.localScale.z
             );
+            cell.gameObject.layer = LayerMask.NameToLayer("Obstacle");
 
             // --- Action 2: Change Color ---
             // pick a red hue near 0 (or wrap-around near 1) and randomize saturation/value for different shades
