@@ -1,4 +1,8 @@
-﻿using System.Collections.Generic;
+﻿// Author: Lucas Pinto
+// Original Date: 2025-10-25
+// Description:
+
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
