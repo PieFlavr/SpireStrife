@@ -5,19 +5,12 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor.SceneManagement;
-
-
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 /// <summary>
 /// Manages a hexagonal grid system using axial coordinates.
 /// Controls HexCell creation, positioning, and provides grid-wide operations like neighbor calculations.
 /// Supports multiple layered grids for different object types (terrain, units, constructs).
 /// </summary>
-[ExecuteAlways]
 public class HexGrid : MonoBehaviour
 {
     /// <summary>
@@ -122,27 +115,12 @@ public class HexGrid : MonoBehaviour
     /// Creates and positions all HexCells within the grid dimensions.
     /// Each cell is assigned axial coordinates and positioned in world space.
     /// </summary>
-    // Replace the existing CreateHexCells() implementation with this
     private void CreateHexCells()
     {
         if (hexCellPrefab == null)
         {
             Debug.LogError("HexGrid: No hexCellPrefab assigned!");
             return;
-        }
-
-        // Ensure children are cleared first (ClearGrid already handles it if you call RebuildGrid)
-        // but when called directly just ensure we start clean
-        if (transform.childCount > 0)
-        {
-            // use DestroyImmediate in editor, Destroy at runtime
-            for (int i = transform.childCount - 1; i >= 0; i--)
-            {
-                if (Application.isPlaying)
-                    Destroy(transform.GetChild(i).gameObject);
-                else
-                    DestroyImmediate(transform.GetChild(i).gameObject);
-            }
         }
 
         for (int q = -gridSize.x / 2; q < gridSize.x / 2; q++)
@@ -152,42 +130,17 @@ public class HexGrid : MonoBehaviour
                 Vector2Int axialCoord = new Vector2Int(q, r);
                 Vector3 worldPos = AxialToWorldPosition(axialCoord);
 
-                GameObject cellObj;
-
-#if UNITY_EDITOR
-                // In editor keep the prefab connection where possible
-                var prefabInstance = PrefabUtility.InstantiatePrefab(hexCellPrefab, transform) as GameObject;
-                if (prefabInstance != null)
-                {
-                    cellObj = prefabInstance;
-                    cellObj.transform.position = worldPos;
-                    cellObj.transform.rotation = Quaternion.identity;
-                }
-                else
-                {
-                    cellObj = Instantiate(hexCellPrefab, worldPos, Quaternion.identity, transform);
-                }
-#else
-            cellObj = Instantiate(hexCellPrefab, worldPos, Quaternion.identity, transform);
-#endif
-
+                GameObject cellObj = Instantiate(hexCellPrefab, worldPos, Quaternion.identity, transform);
                 HexCell cell = cellObj.GetComponent<HexCell>();
 
                 if (cell != null)
                 {
                     cell.axial_coords = axialCoord;
                     cell.parentGrid = this;
-                    if (cells == null) cells = new Dictionary<Vector2Int, HexCell>();
                     cells[axialCoord] = cell;
                 }
             }
         }
-
-#if UNITY_EDITOR
-        // Mark scene dirty in editor so changes persist
-        if (!Application.isPlaying)
-            EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
-#endif
     }
 
     /// <summary>
