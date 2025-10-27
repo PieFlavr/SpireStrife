@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class NormalTile : MonoBehaviour
+public class NormalTile : GridObject
 {
     // Start is called before the first frame update
     void Start()
@@ -14,5 +14,10 @@ public class NormalTile : MonoBehaviour
     void Update()
     {
 
+    }
+
+    protected override void SetObjectType()
+    {
+        objectType = GridObjectType.Tile;
     }
 }
