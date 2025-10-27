@@ -6,14 +6,16 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq; // for querying object types
+using System; // for IComparable
 
 /// <summary>
 /// Represents a single hexagonal cell within the hex grid system.
 /// Manages grid objects placed on this cell and provides access to coordinate information and neighboring cells.
 /// Supports multiple object types through layered storage for flexible grid management.
+/// Now also serves as the node for A* pathfinding.
 /// </summary>
 
-public class HexCell : MonoBehaviour
+public class HexCell : MonoBehaviour, IHeapItem<HexCell>
 {
     /// <summary>
     /// The axial coordinate position of this hex cell within the grid.
@@ -38,6 +40,12 @@ public class HexCell : MonoBehaviour
     public HexGrid parentGrid;
 
     /// <summary>
+    /// Whether this cell is walkable for pathfinding.
+    /// </summary>
+    [Header("Pathfinding")]
+    public bool isWalkable = true;
+
+    /// <summary>
     /// Cached renderer component for changing the cell's color.
     /// </summary>
     private Renderer cellRenderer;
@@ -48,6 +56,52 @@ public class HexCell : MonoBehaviour
     [Header("Cell Visuals")]
     [SerializeField]
     private Color cellColor = Color.white;
+
+    // --- A* Pathfinding Data ---
+
+    public int gCost; // Cost from the start node
+    public int hCost; // Heuristic cost to the end node
+    public HexCell parent; // The cell we came from
+
+    public enum PathfindingState { None, Open, Closed, Path }
+    public PathfindingState pathfindingState = PathfindingState.None;
+
+    /// <summary>
+    /// Total cost for A* (gCost + hCost)
+    /// </summary>
+    public int fCost
+    {
+        get { return gCost + hCost; }
+    }
+
+    // --- IHeapItem Implementation ---
+
+    private int heapIndex;
+
+    public int HeapIndex
+    {
+        get { return heapIndex; }
+        set { heapIndex = value; }
+    }
+
+    /// <summary>
+    /// Compares this cell to another for sorting in the heap.
+    /// Lower fCost is higher priority.
+    /// If fCosts are equal, lower hCost is higher priority.
+    /// </summary>
+    public int CompareTo(HexCell cellToCompare)
+    {
+        int compare = fCost.CompareTo(cellToCompare.fCost);
+        if (compare == 0)
+        {
+            compare = hCost.CompareTo(cellToCompare.hCost);
+        }
+        // We return -compare because the heap is a Max-Heap,
+        // but we want a Min-Heap (lowest cost = highest priority).
+        return -compare;
+    }
+
+    // --- End of IHeapItem Implementation ---
 
     /// <summary>
     /// Called when the component is first created.
@@ -67,6 +121,17 @@ public class HexCell : MonoBehaviour
         
         // Apply the initial color
         SetColor(cellColor);
+    }
+
+    /// <summary>
+    /// Helper to reset the cell's data for a new pathfind
+    /// </summary>
+    public void ResetPathData()
+    {
+        gCost = int.MaxValue;
+        hCost = 0;
+        parent = null;
+        pathfindingState = PathfindingState.None;
     }
 
     /// <summary>
@@ -163,6 +228,44 @@ public class HexCell : MonoBehaviour
     }
 
     private void OnDrawGizmosSelected() {
-    Gizmos.DrawWireSphere(transform.position, 0.15f);
-}
+        // Calculate cell center using collider or mesh bounds if available
+        Vector3 cellCenter = transform.position;
+        var collider = GetComponent<Collider>();
+        if (collider != null) {
+            cellCenter = collider.bounds.center;
+        } else {
+            var meshFilter = GetComponent<MeshFilter>();
+            if (meshFilter != null && meshFilter.sharedMesh != null) {
+                cellCenter = transform.TransformPoint(meshFilter.sharedMesh.bounds.center);
+            }
+        }
+
+        // Draw wire sphere with color based on walkability
+        Gizmos.color = isWalkable ? Color.green : Color.red;
+        Gizmos.DrawWireSphere(cellCenter, 0.15f);
+
+        // Additional gizmos based on pathfinding state
+        switch (pathfindingState) {
+            case PathfindingState.Open:
+                Gizmos.color = Color.yellow;
+                Gizmos.DrawCube(cellCenter + Vector3.up * 0.1f, Vector3.one * 0.1f);
+                break;
+            case PathfindingState.Closed:
+                Gizmos.color = Color.blue;
+                Gizmos.DrawCube(cellCenter + Vector3.up * 0.1f, Vector3.one * 0.1f);
+                break;
+            case PathfindingState.Path:
+                Gizmos.color = Color.magenta;
+                Gizmos.DrawSphere(cellCenter + Vector3.up * 0.2f, 0.05f);
+                break;
+        }
+
+        // Draw axial coordinates as text
+        UnityEditor.Handles.Label(cellCenter + Vector3.up * 0.3f, $"({axial_coords.x}, {axial_coords.y})");
+
+        // If has pathfinding data, show costs
+        if (gCost > 0 || hCost > 0) {
+            UnityEditor.Handles.Label(cellCenter + Vector3.up * 0.5f, $"G:{gCost} H:{hCost} F:{fCost}");
+        }
+    }
 }

@@ -81,7 +81,7 @@ public class GameMgr : MonoBehaviour
                 cell.transform.localScale.z
             );
             cell.gameObject.layer = LayerMask.NameToLayer("Obstacle");
-
+            cell.isWalkable = false;
             // --- Action 2: Change Color ---
             // pick a red hue near 0 (or wrap-around near 1) and randomize saturation/value for different shades
             float hue = (Random.value < 0.5f) ? Random.Range(0f, 0.05f) : Random.Range(0.95f, 1f);
