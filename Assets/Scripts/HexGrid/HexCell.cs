@@ -26,6 +26,8 @@ public class HexCell : MonoBehaviour
     /// List of all GridObjects currently placed on this cell.
     /// Exclusivity and placement rules are enforced by GridObject.CanBePlacedOn() method.
     /// </summary>
+    [Header("Grid Objects")]
+    [Tooltip("All GridObjects currently placed on this cell")]
     private List<GridObject> gridObjects;
 
     /// <summary>
