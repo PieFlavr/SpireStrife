@@ -38,12 +38,35 @@ public class HexCell : MonoBehaviour
     public HexGrid parentGrid;
 
     /// <summary>
+    /// Cached renderer component for changing the cell's color.
+    /// </summary>
+    private Renderer cellRenderer;
+    
+    /// <summary>
+    /// The current display color of this cell.
+    /// </summary>
+    [Header("Cell Visuals")]
+    [SerializeField]
+    private Color cellColor = Color.white;
+
+    /// <summary>
     /// Called when the component is first created.
     /// Initializes the grid object storage system.
     /// </summary>
     private void Awake()
     {
         InitializeObjectStorage();
+        
+        // Cache the renderer
+        cellRenderer = GetComponent<Renderer>(); 
+        if (cellRenderer == null)
+        {
+            // If the renderer is on a child object
+            cellRenderer = GetComponentInChildren<Renderer>();
+        }
+        
+        // Apply the initial color
+        SetColor(cellColor);
     }
 
     /// <summary>
@@ -114,4 +137,32 @@ public class HexCell : MonoBehaviour
     {
         return gridObjects.Any(obj => obj.objectType == type);
     }
+
+    /// <summary>
+    /// Sets the visible color of this hex cell.
+    /// This creates a new material instance for this cell.
+    /// </summary>
+    /// <param name="color">The color to apply</param>
+    public void SetColor(Color color)
+    {
+        cellColor = color;
+        if (cellRenderer != null)
+        {
+            // This creates a new material instance per cell
+            // which is fine for a few hundred cells.
+            cellRenderer.material.color = color;
+        }
+    }
+
+    /// <summary>
+    /// Gets the current color of this cell.
+    /// </summary>
+    public Color GetColor()
+    {
+        return cellColor;
+    }
+
+    private void OnDrawGizmosSelected() {
+    Gizmos.DrawWireSphere(transform.position, 0.15f);
+}
 }
