@@ -43,6 +43,14 @@ public abstract class GridObject : MonoBehaviour
     public GridObjectType objectType;
 
     /// <summary>
+    /// Team/player ID for this grid object.
+    /// 0 = neutral/undeclared, 1+ = player teams
+    /// Use for ownership, combat, and AI evaluation.
+    /// </summary>
+    [Tooltip("Which player/team owns this object")]
+    public int teamID = 0;
+
+    /// <summary>
     /// Reference to the HexCell that contains this GridObject.
     /// Provides access to neighboring cells and grid operations.
     /// </summary>
