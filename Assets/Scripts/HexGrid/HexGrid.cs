@@ -422,9 +422,33 @@ public class HexGrid : MonoBehaviour
         return new Vector2Int(xi, zi);
     }
 
+/// <summary>
+/// Returns all HexCells within a given radius from a center axial coordinate.// {
+/// /// Includes the center cell itself.
+/// </summary>
+/// <param name="center">Center axial coordinate</param>
+/// <param name="radius">Radius (in hex cells)</param>
+/// <returns>List of HexCells within the radius</returns>
+public List<HexCell> GetCellsInRadius(Vector2Int center, int radius)
+{
+    List<HexCell> results = new List<HexCell>();
+    for (int dq = -radius; dq <= radius; dq++)
+    {
+        for (int dr = Mathf.Max(-radius, -dq - radius); dr <= Mathf.Min(radius, -dq + radius); dr++)
+        {
+            Vector2Int coord = new Vector2Int(center.x + dq, center.y + dr);
+            HexCell cell = GetCell(coord);
+            if (cell != null)
+            {
+                results.Add(cell);
+            }
+        }
+    }
+    return results;
+}
+
 public HexCell GetCellFromWorldPosition(Vector3 worldPos)
 {
-    
     foreach (HexCell cell in cells.Values) 
     {
         // We check if the worldPos is very close to the cell's transform position.
@@ -440,4 +464,48 @@ public HexCell GetCellFromWorldPosition(Vector3 worldPos)
     Debug.LogWarning("HexGrid.GetCellFromWorldPosition: No cell found at " + worldPos);
     return null;
 }
+
+    public List<HexCell> GetCellsAlongLine(HexCell start, HexCell end)
+    {
+        List<HexCell> results = new List<HexCell>();
+        int N = GetDistance(start, end);
+
+        Vector2 startF = new Vector2(start.axial_coords.x, start.axial_coords.y);
+        Vector2 endF = new Vector2(end.axial_coords.x, end.axial_coords.y);
+
+        for (int i = 0; i <= N; i++)
+        {
+            float t = (N == 0) ? 0.0f : i / (float)N;
+            Vector2 lerpedAxialF = Vector2.Lerp(startF, endF, t);
+            Vector2Int roundedCoord = CubeRound_Axial(lerpedAxialF.x, lerpedAxialF.y);
+
+            HexCell cell = GetCell(roundedCoord);
+            // Make sure the cell is not an obstacle
+            if (cell != null && !results.Contains(cell) && cell.isWalkable)
+            {
+                results.Add(cell);
+            }
+        }
+        return results;
+    }
+    /// <summary>
+    /// Calculates the grid distance (in cells) between two HexCells.
+    /// </summary>
+    public int GetDistance(HexCell a, HexCell b)
+    {
+        Vector2Int ac = a.axial_coords;
+        Vector2Int bc = b.axial_coords;
+
+        // Convert axial to cube coordinates for distance calculation
+        int a_q = ac.x;
+        int a_r = ac.y;
+        int a_s = -a_q - a_r;
+
+        int b_q = bc.x;
+        int b_r = bc.y;
+        int b_s = -b_q - b_r;
+
+        // Return the cube distance (which is equivalent to hex distance)
+        return (Mathf.Abs(a_q - b_q) + Mathf.Abs(a_r - b_r) + Mathf.Abs(a_s - b_s)) / 2;
+    }
 }

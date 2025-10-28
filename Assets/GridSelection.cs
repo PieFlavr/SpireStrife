@@ -199,73 +199,33 @@ public class GridSelection : MonoBehaviour
         if (currentPath == null || grid == null)
             return;
 
-        // ClearPath() should have already cleared the dictionary, but we do
-        // it here just in case to avoid any potential bugs.
         previousPathCellColors.Clear();
 
-        foreach (Vector3 cellPosition in currentPath)
+        for (int i = 0; i < currentPath.Length - 1; i++)
         {
-            // This is the crucial step. You need a method in your HexGrid script
-            // that can convert a world position (Vector3) back to a HexCell.
-            HexCell cell = grid.GetCellFromWorldPosition(cellPosition); 
+            Vector3 start = currentPath[i];
+            Vector3 end = currentPath[i + 1];
 
-            if (cell != null)
+            // Get the cells corresponding to start and end
+            HexCell startCell = grid.GetCellFromWorldPosition(start);
+            HexCell endCell = grid.GetCellFromWorldPosition(end);
+
+            if (startCell == null || endCell == null)
+                continue;
+
+            // Use a hex line algorithm to get all cells between start and end
+            List<HexCell> lineCells = grid.GetCellsAlongLine(startCell, endCell);
+
+            foreach (HexCell cell in lineCells)
             {
-                // Don't color the start or end cell, as they
-                // already have their 'selected' and 'target' colors.
                 if (cell != currentlySelectedCell && cell != currentlyTargetCell)
                 {
-                    // Store the cell's original color so we can restore it later
-                    previousPathCellColors[cell] = cell.GetColor();
-                    // Set the new path color
+                    if (!previousPathCellColors.ContainsKey(cell))
+                        previousPathCellColors[cell] = cell.GetColor();
+
                     cell.SetColor(pathColor);
                 }
             }
-            else
-            {
-                Debug.LogWarning("Could not find cell at position: " + cellPosition);
-            }
         }
     }
-    // --- END NEW ---
-
-    // --- HEAVILY MODIFIED ---
-    // private void RenderPath()
-    // {
-    //     // We already cleared the old path in SelectTargetCell or SelectCell,
-    //     // so we just need to build the new one.
-        
-    //     // Need at least 2 points to draw a line segment
-    //     if (currentPath == null || currentPath.Length < 2)
-    //     {
-    //         return;
-    //     }
-
-    //     // Loop through the path array, stopping at the second-to-last point
-    //     for (int i = 0; i < currentPath.Length - 1; i++)
-    //     {
-    //         // Create a new GameObject to hold the line segment
-    //         // Name it for clarity in the hierarchy
-    //         GameObject lineObject = new GameObject("PathSegment_" + i);
-            
-    //         // Parent it to this object so it gets destroyed if this object is
-    //         lineObject.transform.SetParent(this.transform);
-
-    //         // Add the LineRenderer component
-    //         LineRenderer line = lineObject.AddComponent<LineRenderer>();
-
-    //         // Configure its properties
-    //         line.material = lineMaterial;
-    //         line.startWidth = lineStartWidth;
-    //         line.endWidth = lineEndWidth;
-    //         line.positionCount = 2; // Each segment only has a start and an end
-
-    //         // Set the two points for this segment
-    //         line.SetPosition(0, currentPath[i]);
-    //         line.SetPosition(1, currentPath[i + 1]);
-
-    //         // Add the new LineRenderer to our list for cleanup later
-    //         pathLineRenderers.Add(line);
-    //     }
-    // }
 }
