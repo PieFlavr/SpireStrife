@@ -60,6 +60,18 @@ public class HexGrid : MonoBehaviour
     private Dictionary<Vector2Int, HexCell> cells;
 
     /// <summary>
+    /// The total number of cells in the grid, used for heap initialization.
+    /// </summary>
+    public int MaxSize
+    {
+        get
+        {
+            if (cells == null) return 0;
+            return cells.Count;
+        }
+    }
+
+    /// <summary>
     /// Instance of the created base plane.
     /// </summary>
     private GameObject _basePlaneInstance;
@@ -239,7 +251,7 @@ public class HexGrid : MonoBehaviour
     /// </summary>
     /// <param name="axialCoord">The axial coordinate to convert</param>
     /// <returns>World position for the hex cell</returns>
-    private Vector3 AxialToWorldPosition(Vector2Int axialCoord)
+    public Vector3 AxialToWorldPosition(Vector2Int axialCoord)
     {
         // Should pprobably double check this formula later...
         float x = cellSpacing * (3.0f / 2.0f * axialCoord.x);
@@ -393,19 +405,39 @@ public class HexGrid : MonoBehaviour
     float rf = (-1f/3f) * pos.x / cellSpacing + (1f/Mathf.Sqrt(3f)) * pos.z / cellSpacing;
     return CubeRound_Axial(qf, rf);
 }
-private Vector2Int CubeRound_Axial(float qf, float rf) {
-    // axial→cube
-    float xf = qf;
-    float zf = rf;
-    float yf = -xf - zf;
-    int xi = Mathf.RoundToInt(xf);
-    int yi = Mathf.RoundToInt(yf);
-    int zi = Mathf.RoundToInt(zf);
-    float dx = Mathf.Abs(xi - xf), dy = Mathf.Abs(yi - yf), dz = Mathf.Abs(zi - zf);
-    if (dx > dy && dx > dz) xi = -yi - zi;
-    else if (dy > dz) yi = -xi - zi;
-    else zi = -xi - yi;
-    // cube→axial
-    return new Vector2Int(xi, zi);
+    private Vector2Int CubeRound_Axial(float qf, float rf)
+    {
+        // axial→cube
+        float xf = qf;
+        float zf = rf;
+        float yf = -xf - zf;
+        int xi = Mathf.RoundToInt(xf);
+        int yi = Mathf.RoundToInt(yf);
+        int zi = Mathf.RoundToInt(zf);
+        float dx = Mathf.Abs(xi - xf), dy = Mathf.Abs(yi - yf), dz = Mathf.Abs(zi - zf);
+        if (dx > dy && dx > dz) xi = -yi - zi;
+        else if (dy > dz) yi = -xi - zi;
+        else zi = -xi - yi;
+        // cube→axial
+        return new Vector2Int(xi, zi);
+    }
+
+public HexCell GetCellFromWorldPosition(Vector3 worldPos)
+{
+    
+    foreach (HexCell cell in cells.Values) 
+    {
+        // We check if the worldPos is very close to the cell's transform position.
+        // We use a small tolerance (0.1f) because floating-point numbers
+        // from pathfinding might not be perfectly exact.
+        if (Vector3.Distance(cell.transform.position, worldPos) < 0.1f)
+        {
+            return cell;
+        }
+    }
+
+    // If no cell is found at that exact position
+    Debug.LogWarning("HexGrid.GetCellFromWorldPosition: No cell found at " + worldPos);
+    return null;
 }
 }

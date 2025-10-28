@@ -665,6 +665,64 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 100b3ea79ed252645abe62c5c8ecd06b, type: 3}
+--- !u!1 &1392500823
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1392500826}
+  - component: {fileID: 1392500825}
+  - component: {fileID: 1392500824}
+  m_Layer: 0
+  m_Name: HexPathFinding
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1392500824
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1392500823}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b50c615704852b248a2aa545ddc30718, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &1392500825
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1392500823}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 063ce8321df51f84aa6652dee41f9b76, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  grid: {fileID: 1043126520}
+--- !u!4 &1392500826
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1392500823}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1404781943
 GameObject:
   m_ObjectHideFlags: 0
@@ -1354,7 +1412,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   axial_coords: {x: 0, y: 0}
   parentGrid: {fileID: 0}
+  isWalkable: 1
   cellColor: {r: 0.9622642, g: 0.9622642, b: 0.9622642, a: 1}
+  gCost: 0
+  hCost: 0
+  parent: {fileID: 0}
+  pathfindingState: 0
 --- !u!1 &1765202378 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 3031292306854896147, guid: 100b3ea79ed252645abe62c5c8ecd06b, type: 3}
@@ -1430,7 +1493,7 @@ Transform:
   m_GameObject: {fileID: 1810627533}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -26.398428, y: -0.017876834, z: 6.516477}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1501,3 +1564,6 @@ SceneRoots:
   - {fileID: 842334359}
   - {fileID: 2102354162}
   - {fileID: 1791742288}
+  - {fileID: 519312548}
+  - {fileID: 1810627535}
+  - {fileID: 1392500826}
