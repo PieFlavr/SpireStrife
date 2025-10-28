@@ -23,7 +23,7 @@ public class CameraController : MonoBehaviour
 
     void Update()
     {
-        HandleLook();
+        // HandleLook();
         HandleMovement();
         if (Input.GetKeyDown(KeyCode.Escape))
         {
@@ -33,7 +33,7 @@ public class CameraController : MonoBehaviour
     }
 
     void HandleLook()
-    {
+    { 
         float mouseX = Input.GetAxis("Mouse X");
         float mouseY = Input.GetAxis("Mouse Y");
 

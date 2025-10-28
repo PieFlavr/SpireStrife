@@ -217,7 +217,7 @@ public class HexGrid : MonoBehaviour
                 cellObj.name = $"HexCell_{q}_{r}";
                 cellObj.SetActive(true);
                 // Resize the instantiated cell to match cellSpacing (uniform scale)
-                cellObj.transform.localScale = new Vector3(cellSpacing * 2, 0.2f, cellSpacing * 2) - Vector3.one * 0.02f;
+                cellObj.transform.localScale = new Vector3(cellSpacing * 2, 0.1f, cellSpacing * 2);
 
                 if (cell != null)
                 {
