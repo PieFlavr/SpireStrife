@@ -1,29 +1,87 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 public class MainMenu : MonoBehaviour
 {
+    [Header("Buttons")]
     public Button playButton;
     public Button quitButton;
-    public string gameplaySceneName = "HexGridTest"; 
+    public Button instructionsButton;
+    public Button creditsButton;
+    public Button backButtonInstructions;
+    public Button backButtonCredits;
 
-    void Start()
+    [Header("Panels")]
+    public GameObject mainPanel;
+    public GameObject instructionsPanel;
+    public GameObject creditsPanel;
+
+    [Header("Fade Settings")]
+    public CanvasGroup fadeCanvasGroup;
+    public float fadeDuration = 0.5f;
+
+    [Header("Scene")]
+    public string gameplaySceneName = "HexGridTest";
+
+    private void Start()
     {
         playButton.onClick.AddListener(PlayGame);
         quitButton.onClick.AddListener(QuitGame);
+        instructionsButton.onClick.AddListener(() => StartCoroutine(SwitchPanel(mainPanel, instructionsPanel)));
+        creditsButton.onClick.AddListener(() => StartCoroutine(SwitchPanel(mainPanel, creditsPanel)));
+        backButtonInstructions.onClick.AddListener(() => StartCoroutine(SwitchPanel(instructionsPanel, mainPanel)));
+        backButtonCredits.onClick.AddListener(() => StartCoroutine(SwitchPanel(creditsPanel, mainPanel)));
+
+        fadeCanvasGroup.alpha = 0f;
+        StartCoroutine(FadeIn());
     }
 
-    public void PlayGame()
+    private void PlayGame()
     {
-        SceneManager.LoadScene(gameplaySceneName);
+        StartCoroutine(LoadSceneWithFade());
     }
 
-    public void QuitGame()
+    private void QuitGame()
     {
         Application.Quit();
         Debug.Log("Quit game triggered.");
+    }
+
+    private IEnumerator SwitchPanel(GameObject from, GameObject to)
+    {
+        yield return FadeOut();
+        from.SetActive(false);
+        to.SetActive(true);
+        yield return FadeIn();
+    }
+
+    private IEnumerator FadeIn()
+    {
+        float t = 0f;
+        while (t < fadeDuration)
+        {
+            t += Time.deltaTime;
+            fadeCanvasGroup.alpha = Mathf.Lerp(0, 1, t / fadeDuration);
+            yield return null;
+        }
+    }
+
+    private IEnumerator FadeOut()
+    {
+        float t = 0f;
+        while (t < fadeDuration)
+        {
+            t += Time.deltaTime;
+            fadeCanvasGroup.alpha = Mathf.Lerp(1, 0, t / fadeDuration);
+            yield return null;
+        }
+    }
+
+    private IEnumerator LoadSceneWithFade()
+    {
+        yield return FadeOut();
+        SceneManager.LoadScene(gameplaySceneName);
     }
 }
