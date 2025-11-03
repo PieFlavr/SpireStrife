@@ -1,3 +1,7 @@
+// Author: Lucas Pinto
+// Original Date: 2025-10-25
+// Description:
+
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -207,7 +211,7 @@ public class SpireConstruct : GridObject
             return;
         }
 
-        // Opposition — apply claim progress
+        // Opposition â€” apply claim progress
         int contribution = arriving.unitCount;
         if (contribution <= 0)
         {
