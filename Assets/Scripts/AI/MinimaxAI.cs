@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Diagnostics;
+// using System.Diagnostics;
 using UnityEngine;
 
 /// <summary>
@@ -94,9 +94,25 @@ public class MinimaxAI : MonoBehaviour
     /// </summary>
     public void PlanAndQueueAIMoves()
     {
+        if (IsBusy)
+        {
+            Debug.LogWarning("[MinimaxAI] PlanAndQueueAIMoves called while already busy!");
+            return;
+        }
         
+        if (TurnManager.inst == null)
+        {
+            Debug.LogError("[MinimaxAI] Cannot plan - TurnManager.inst is null!");
+            return;
+        }
+        
+        if (SEND_CAP <= 0)
+        {
+            Debug.LogError($"[MinimaxAI] Cannot plan - SEND_CAP is {SEND_CAP}!");
+            return;
+        }
 
-        if (!IsBusy) StartCoroutine(PlanAndQueueAIMovesMinimaxCoroutine());
+        StartCoroutine(PlanAndQueueAIMovesMinimaxCoroutine());
     }
 
     private System.Collections.IEnumerator PlanAndQueueAIMovesMinimaxCoroutine()
@@ -523,16 +539,41 @@ public class MinimaxAI : MonoBehaviour
         int beta = int.MaxValue - 1;
 
         var moves = OrderedMoves(root, aiTeam, playerTeam);
-        // Root-level tabu filter: avoid repeating the same (from->to) for 2 turns unless it finishes now
+        
+        Debug.Log($"[MinimaxAI] SearchBest: {moves.Count} candidate moves before tabu filter");
+        
+        // Root-level tabu filter
         moves = moves.Where(m => !IsTabu(m, aiTurnCounter) || IsFinisher(root, m, aiTeam)).ToList();
+        
+        Debug.Log($"[MinimaxAI] SearchBest: {moves.Count} candidate moves after tabu filter");
+
+        if (moves.Count == 0)
+        {
+            Debug.LogWarning("[MinimaxAI] SearchBest: No valid moves available!");
+            return null;
+        }
 
         foreach (var m in moves)
         {
             var s1 = SimulateAction(root, m, aiTeam, aiTeam, playerTeam);
             int sc = -Negamax(s1, depth - 1, -beta, -alpha, playerTeam, aiTeam, playerTeam);
-            if (sc > bestScore) { bestScore = sc; bestMove = m; }
+            
+            Debug.Log($"[MinimaxAI] Evaluating {m.From?.name} -> {m.To?.name}: score={sc}");
+            
+            if (sc > bestScore) 
+            { 
+                bestScore = sc; 
+                bestMove = m; 
+                Debug.Log($"[MinimaxAI] New best move: score={bestScore}");
+            }
             if (sc > alpha) alpha = sc;
         }
+        
+        if (bestMove == null)
+        {
+            Debug.LogWarning("[MinimaxAI] SearchBest: All moves evaluated but none selected!");
+        }
+        
         return bestMove;
     }
 
@@ -684,6 +725,16 @@ public class MinimaxAI : MonoBehaviour
     }
     void Start()
     {
-        SEND_CAP = UiMgr.inst != null ? UiMgr.inst.generateCountPerCommand : 10;
+        if (UiMgr.inst != null && UiMgr.inst.generateCountPerCommand > 0)
+        {
+            SEND_CAP = UiMgr.inst.generateCountPerCommand;
+        }
+        else
+        {
+            SEND_CAP = 10; // Safe fallback
+            UnityEngine.Debug.LogWarning("[MinimaxAI] UiMgr not found or generateCountPerCommand is 0, using default SEND_CAP=10");
+        }
+        
+        UnityEngine.Debug.Log($"[MinimaxAI] Initialized with SEND_CAP={SEND_CAP}");
     }
 }

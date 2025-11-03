@@ -436,7 +436,7 @@ MonoBehaviour:
   creditsPanel: {fileID: 376445942}
   fadeCanvasGroup: {fileID: 700751434}
   fadeDuration: 0.5
-  gameplaySceneName: HexGridTest
+  gameplaySceneName: Level1
 --- !u!224 &168430926 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 7449862398882633438, guid: f2e030b8c4d364692bd0e921ddfac216, type: 3}

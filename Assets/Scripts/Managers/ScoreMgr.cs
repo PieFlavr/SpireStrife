@@ -54,77 +54,85 @@ public class ScoreMgr : MonoBehaviour
 	{
 		if (isFinalized) return;
 
-		// Defer until systems are initialized
-		if (TurnManager.inst == null || TurnManager.inst.CurrentPhase == TurnManager.Phase.Init)
-			return;
-		if (GameMgr.inst == null)
-			return; // we rely on GameMgr fields per user request
-		int knownSpires = GameMgr.inst.playerSpires.Count + GameMgr.inst.aiSpires.Count + GameMgr.inst.neutralSpires.Count;
-		if (knownSpires == 0)
-			return; // spires not discovered yet
+    if (TurnManager.inst == null || TurnManager.inst.CurrentPhase == TurnManager.Phase.Init)
+        return;
+    if (GameMgr.inst == null)
+        return;
+        
+    int knownSpires = GameMgr.inst.playerSpires.Count + GameMgr.inst.aiSpires.Count + GameMgr.inst.neutralSpires.Count;
+    if (knownSpires == 0)
+        return;
 
-	// Use GameMgr reserves as the definition of remaining units
-		lastPlayerUnits = Mathf.Max(0, GameMgr.inst.remainingPlayerUnits);
-		lastAiUnits = Mathf.Max(0, GameMgr.inst.remainingAiUnits);
+    // Use remainingGarrison (reserves) for unit counts
+    lastPlayerUnits = Mathf.Max(0, GameMgr.inst.remainingPlayerUnits);
+    lastAiUnits = Mathf.Max(0, GameMgr.inst.remainingAiUnits);
 
-		// Only allow finalize after we've seen any reserve > 0 at least once
-		if (!startedPlayObserved)
-		{
-			if (lastPlayerUnits > 0 && lastAiUnits > 0)
-				startedPlayObserved = true;
-			else
-				return; // both zero and never saw >0 yet: don't finalize at frame 0
-		}
-
-		// Always compute spire counts for immediate one-sided finish rule
-		lastPlayerSpires = GameMgr.inst.playerSpires.Count;
-		lastAiSpires = GameMgr.inst.aiSpires.Count;
-
-		// 1. One-sided finish immediate-win rule
-		if (lastPlayerUnits == 0 && lastAiUnits > 0)
-		{
-			if (lastAiSpires > lastPlayerSpires)
-			{
-				result = GameResult.AiWin;
-				Debug.Log("Result: AI wins (player finished units and AI already has more spires)");
-				NotifyMatchEnd();
-                return;
-			}
-			// else: keep running until AI also finishes units
-		}
-		// 2. One-sided Player win
-		else if (lastAiUnits == 0 && lastPlayerUnits > 0)
-		{
-			if (lastPlayerSpires > lastAiSpires)
-			{
-				result = GameResult.PlayerWin;
-				Debug.Log("Result: Player wins (AI finished units and Player already has more spires)");
-                NotifyMatchEnd();
-                return;
-			}
-			// else: keep running until Player also finishes units
-		}
-
-		// 3. Both finished -> final comparison including draw
-		if (lastPlayerUnits == 0 && lastAiUnits == 0)
-		{
-			if (lastPlayerSpires > lastAiSpires)
-			{
-				result = GameResult.PlayerWin;
-				Debug.Log("Result: Player wins (more spires when both sides finished units)");
-			}
-			else if (lastAiSpires > lastPlayerSpires)
-			{
-				result = GameResult.AiWin;
-				Debug.Log("Result: AI wins (more spires when both sides finished units)");
-			}
-			else
-			{
-				result = GameResult.Draw;
-				Debug.Log("Result: Draw (equal spires when both sides finished units)");
-			}
-            NotifyMatchEnd();
+    if (!startedPlayObserved)
+    {
+        if (lastPlayerUnits > 0 && lastAiUnits > 0)
+        {
+            startedPlayObserved = true;
+            Debug.Log($"[ScoreMgr] Game started observed");
         }
+        else
+            return;
+    }
+
+    lastPlayerSpires = GameMgr.inst.playerSpires.Count;
+    lastAiSpires = GameMgr.inst.aiSpires.Count;
+
+    // NEW: Don't finalize if game is still actively being played
+    if (TurnManager.inst.CurrentPhase == TurnManager.Phase.AiPlanning || 
+        TurnManager.inst.CurrentPhase == TurnManager.Phase.AiResolving)
+    {
+        Debug.Log($"[ScoreMgr] Deferring check - AI is currently taking turn");
+        return;
+    }
+
+    // 1. One-sided finish immediate-win rule
+    if (lastPlayerUnits == 0 && lastAiUnits > 0)
+    {
+        if (lastAiSpires > lastPlayerSpires)
+        {
+            result = GameResult.AiWin;
+            Debug.Log("[ScoreMgr] FINALIZED: AI wins (player out of units, AI has more spires)");
+            NotifyMatchEnd();
+            return;
+        }
+        Debug.Log($"[ScoreMgr] Player out of units but AI doesn't have spire advantage yet");
+    }
+    else if (lastAiUnits == 0 && lastPlayerUnits > 0)
+    {
+        if (lastPlayerSpires > lastAiSpires)
+        {
+            result = GameResult.PlayerWin;
+            Debug.Log("[ScoreMgr] FINALIZED: Player wins (AI out of units, Player has more spires)");
+            NotifyMatchEnd();
+            return;
+        }
+        Debug.Log($"[ScoreMgr] AI out of units but Player doesn't have spire advantage yet");
+    }
+
+    // 3. Both finished -> final comparison
+    if (lastPlayerUnits == 0 && lastAiUnits == 0)
+    {
+        if (lastPlayerSpires > lastAiSpires)
+        {
+            result = GameResult.PlayerWin;
+            Debug.Log("[ScoreMgr] FINALIZED: Player wins (both out of units, Player has more spires)");
+        }
+        else if (lastAiSpires > lastPlayerSpires)
+        {
+            result = GameResult.AiWin;
+            Debug.Log("[ScoreMgr] FINALIZED: AI wins (both out of units, AI has more spires)");
+        }
+        else
+        {
+            result = GameResult.Draw;
+            Debug.Log("[ScoreMgr] FINALIZED: Draw (both out of units, equal spires)");
+        }
+        NotifyMatchEnd();
+    }
 	}
 
     private void NotifyMatchEnd()

@@ -71,48 +71,60 @@ public class TurnManager : MonoBehaviour
     }
 
     private System.Collections.IEnumerator ResolvePlayerThenAi()
+{
+    isResolving = true;
+    Debug.Log($"[TurnManager] === ResolvePlayerThenAi START ===");
+    turnCount++;
+    CurrentPhase = Phase.PlayerResolving;
+    Debug.Log($"[TurnManager] Phase: PlayerResolving, queued player moves: {queuedPlayer.Count}");
+
+    ResolveConflicts(queuedPlayer);
+    yield return ResolveTeamAsync(queuedPlayer);
+
+    Debug.Log($"[TurnManager] Phase: AiPlanning");
+    CurrentPhase = Phase.AiPlanning;
+
+    var ai = FindObjectOfType<MinimaxAI>();
+    if (ai != null)
     {
-        isResolving = true;
-        turnCount++;
-        CurrentPhase = Phase.PlayerResolving;
-
-        // Resolve conflicts within player moves if needed (rare in single-team queue)
-        ResolveConflicts(queuedPlayer);
-
-        yield return ResolveTeamAsync(queuedPlayer);
-
-        CurrentPhase = Phase.AiPlanning; // lock input by property
-
-        // AI planning hook: let MinimaxAI choose and queue one move
-        var ai = FindObjectOfType<MinimaxAI>();
-        if (ai != null)
+        Debug.Log($"[TurnManager] Calling AI.PlanAndQueueAIMoves, AI.IsBusy={ai.IsBusy}");
+        ai.PlanAndQueueAIMoves();
+        
+        int guard = 0;
+        while (ai.IsBusy && guard < 300)
         {
-            ai.PlanAndQueueAIMoves();
-            // Wait until AI finishes async path planning so movement queues are ready this phase
-            int guard = 0;
-            while (ai.IsBusy && guard < 300)
-            {
-                guard++;
-                yield return null;
-            }
+            guard++;
+            yield return null;
         }
-
-        CurrentPhase = Phase.AiResolving;
-
-    // Resolve conflicts within AI moves (again, single-team queue)
-        ResolveConflicts(queuedAi);
-
-        yield return ResolveTeamAsync(queuedAi);
-
-        // New turn cycle: reset spires and go back to player planning
-        foreach (var spire in FindObjectsOfType<SpireConstruct>())
+        
+        if (guard >= 300)
         {
-            spire.ResetTurn();
+            Debug.LogError($"[TurnManager] AI planning timeout! IsBusy still true after 300 frames");
         }
-
-        isResolving = false;
-        StartPlayerPlanning();
+        else
+        {
+            Debug.Log($"[TurnManager] AI planning completed after {guard} frames");
+        }
     }
+
+    Debug.Log($"[TurnManager] Phase: AiResolving, queued AI moves: {queuedAi.Count}");
+    CurrentPhase = Phase.AiResolving;
+
+    ResolveConflicts(queuedAi);
+    yield return ResolveTeamAsync(queuedAi);
+
+    // NEW: Add debug logging for regeneration
+    Debug.Log($"[TurnManager] Regenerating reserves for {FindObjectsOfType<SpireConstruct>().Length} spires");
+    
+    foreach (var spire in FindObjectsOfType<SpireConstruct>())
+    {
+        spire.ResetTurn();
+    }
+
+    isResolving = false;
+    Debug.Log($"[TurnManager] === ResolvePlayerThenAi END ===");
+    StartPlayerPlanning();
+}
 
     private void ResolveConflicts(List<Units> queued)
     {
@@ -159,12 +171,14 @@ public class TurnManager : MonoBehaviour
     // =========================
     // Auto-skip loop when player has no units
     // =========================
+    // TurnManager.cs
     private bool ShouldSkipPlayerTurn()
     {
-        // Player has zero active units AND AI spires <= Player spires
+        if (turnCount <= 1) return false; // Never skip first turn
+        
         int playerUnits = CountActiveUnits(playerTeamId);
         if (playerUnits > 0) return false;
-
+        
         int aiSpires = CountSpires(aiTeamId);
         int playerSpires = CountSpires(playerTeamId);
         return aiSpires <= playerSpires;
@@ -172,62 +186,83 @@ public class TurnManager : MonoBehaviour
 
     private System.Collections.IEnumerator RunAiAutoLoop()
     {
-        // Prevent re-entrance
-        if (isResolving) yield break;
-        isResolving = true;
+        if (isResolving)
+    {
+        Debug.LogError("[TurnManager] RunAiAutoLoop called while already resolving!");
+        yield break;
+    }
+    
+    isResolving = true;
+    Debug.Log("[TurnManager] === ENTERING AI AUTO-LOOP ===");
 
-        bool stop = false;
-        while (!stop)
+    bool stop = false;
+    int loopCount = 0;
+    int maxLoops = 100; // Safety limit
+    
+    while (!stop && loopCount < maxLoops)
+    {
+        loopCount++;
+        Debug.Log($"[TurnManager] AI auto-loop iteration {loopCount}");
+        
+        CurrentPhase = Phase.AiPlanning;
+
+        var ai = FindObjectOfType<MinimaxAI>();
+        if (ai != null)
         {
-            // AI Planning
-            CurrentPhase = Phase.AiPlanning;
-
-            var ai = FindObjectOfType<MinimaxAI>();
-            if (ai != null)
+            ai.PlanAndQueueAIMoves();
+            int guard = 0;
+            while (ai.IsBusy && guard < 300)
             {
-                ai.PlanAndQueueAIMoves();
-                int guard = 0;
-                while (ai.IsBusy && guard < 300)
-                {
-                    guard++;
-                    yield return null;
-                }
+                guard++;
+                yield return null;
             }
-
-            // AI Resolving
-            CurrentPhase = Phase.AiResolving;
-            ResolveConflicts(queuedAi);
-            yield return ResolveTeamAsync(queuedAi);
-
-            // Reset per-turn flags on spires at end of AI turn
-            foreach (var spire in FindObjectsOfType<SpireConstruct>())
-                spire.ResetTurn();
-
-            // End-of-turn checks
-            int aiUnits = CountActiveUnits(aiTeamId);
-            int playerUnits = CountActiveUnits(playerTeamId);
-            int aiSpires = CountSpires(aiTeamId);
-            int playerSpires = CountSpires(playerTeamId);
-
-            // Stop conditions: AI finished its units OR AI gained spire lead
-            if (aiUnits == 0 || aiSpires > playerSpires)
+            
+            if (guard >= 300)
             {
+                Debug.LogError("[TurnManager] AI auto-loop: AI planning timeout!");
                 stop = true;
+                break;
             }
-
-            // If both finished units, we can finalize immediately
-            if (aiUnits == 0 && playerUnits == 0)
-            {
-                stop = true;
-            }
-
-            // Safety: avoid infinite loops
-            yield return null;
         }
 
-        isResolving = false;
-        // Resume normal cycle (likely back to PlayerPlanning)
-        StartPlayerPlanning();
+        CurrentPhase = Phase.AiResolving;
+        ResolveConflicts(queuedAi);
+        yield return ResolveTeamAsync(queuedAi);
+
+        foreach (var spire in FindObjectsOfType<SpireConstruct>())
+            spire.ResetTurn();
+
+        int aiUnits = CountActiveUnits(aiTeamId);
+        int playerUnits = CountActiveUnits(playerTeamId);
+        int aiSpires = CountSpires(aiTeamId);
+        int playerSpires = CountSpires(playerTeamId);
+        
+        Debug.Log($"[TurnManager] AI auto-loop: aiUnits={aiUnits}, aiSpires={aiSpires}, playerSpires={playerSpires}");
+
+        // Stop conditions
+        if (aiUnits == 0 || aiSpires > playerSpires)
+        {
+            Debug.Log($"[TurnManager] AI auto-loop stopping: aiUnits={aiUnits}, aiSpires={aiSpires}, playerSpires={playerSpires}");
+            stop = true;
+        }
+
+        if (aiUnits == 0 && playerUnits == 0)
+        {
+            Debug.Log("[TurnManager] AI auto-loop stopping: both sides out of units");
+            stop = true;
+        }
+
+        yield return null;
+    }
+
+    if (loopCount >= maxLoops)
+    {
+        Debug.LogError($"[TurnManager] AI auto-loop hit safety limit of {maxLoops} iterations!");
+    }
+
+    isResolving = false;
+    Debug.Log("[TurnManager] === EXITING AI AUTO-LOOP ===");
+    StartPlayerPlanning();
     }
 
     private int CountActiveUnits(int team)
