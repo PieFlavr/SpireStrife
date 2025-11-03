@@ -7,6 +7,7 @@ public class TurnManager : MonoBehaviour
     public static TurnManager inst;
     public int playerTeamId = 0;
     public int aiTeamId = 1;
+    public int turnCount = 0;
 
     public enum Phase { Init, PlayerPlanning, PlayerResolving, AiPlanning, AiResolving, GameOver }
     public Phase CurrentPhase { get; private set; } = Phase.Init;
@@ -53,8 +54,10 @@ public class TurnManager : MonoBehaviour
         StartCoroutine(ResolvePlayerThenAi());
     }
 
-    private void StartPlayerPlanning()
+    private void 
+    StartPlayerPlanning()
     {
+        turnCount++;
         // If player has no units and AI has less-than-or-equal spires, skip player's turn
         if (ShouldSkipPlayerTurn())
         {
@@ -70,6 +73,7 @@ public class TurnManager : MonoBehaviour
     private System.Collections.IEnumerator ResolvePlayerThenAi()
     {
         isResolving = true;
+        turnCount++;
         CurrentPhase = Phase.PlayerResolving;
 
         // Resolve conflicts within player moves if needed (rare in single-team queue)

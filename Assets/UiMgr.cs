@@ -120,6 +120,7 @@ public class UiMgr : MonoBehaviour
         }
 
         currentlySelectedCell = cell;
+        UIIntegrationHelper.OnCellSelected(cell);
         previousSelectedColor = currentlySelectedCell.GetColor();
         currentlySelectedCell.SetColor(selectedColor);
 
@@ -168,6 +169,7 @@ public class UiMgr : MonoBehaviour
         }
 
         currentlyTargetCell = cell;
+        UIIntegrationHelper.OnCellSelected(cell);
         previousTargetColor = currentlyTargetCell.GetColor();
         currentlyTargetCell.SetColor(targetColor);
 
@@ -345,6 +347,7 @@ public class UiMgr : MonoBehaviour
         }
         selectedSpire = null;
         targetSpire = null;
+        UIIntegrationHelper.OnCellDeselected();
         ClearPath();
     }
 }
