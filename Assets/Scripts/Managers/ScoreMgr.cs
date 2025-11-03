@@ -127,16 +127,24 @@ public class ScoreMgr : MonoBehaviour
         }
 	}
 
+    /// <summary>
+    /// Notifies all subscribers that the match has ended via the GameEvents system.
+    /// Broadcasts the result through a decoupled event bus rather than direct method calls.
+    /// </summary>
+    /// <remarks>
+    /// Called internally when CheckAndFinalizeIfDone() determines a match winner.
+    /// Subscribers include: LevelManager (performance tracking), EndScreen (UI display), analytics systems.
+    /// Uses the Observer pattern to maintain loose coupling between game logic and presentation layers.
+    /// </remarks>
     private void NotifyMatchEnd()
     {
-        // Notify LevelManager of match end
-        if (LevelManager.inst != null)
-        {
-            LevelManager.inst.OnMatchEnd(result);
-        }
+        // Broadcast event - no direct dependencies!
+    GameEvents.MatchEnded(result);
+     
+        Debug.Log($"ScoreMgr: Match ended with result {result}");
     }
-    void Update()
-    {
+	void Update()
+	{
 		// Poll-based check is acceptable here since finalization happens once per match
         
 		if (!isFinalized)

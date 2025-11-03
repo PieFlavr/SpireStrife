@@ -23,6 +23,49 @@ public class EndScreen : MonoBehaviour
         gameObject.SetActive(false);
     }
 
+    /// <summary>
+    /// Subscribes to game events when the component is enabled.
+    /// Ensures EndScreen responds to match end notifications.
+    /// </summary>
+    private void OnEnable()
+    {
+        GameEvents.OnMatchEnded += HandleMatchEnd;
+    }
+
+    /// <summary>
+    /// Unsubscribes from game events when the component is disabled.
+    /// Prevents memory leaks and duplicate event subscriptions.
+    /// </summary>
+    private void OnDisable()
+    {
+        GameEvents.OnMatchEnded -= HandleMatchEnd;
+    }
+
+    /// <summary>
+    /// Handles match end notifications from the GameEvents system.
+    /// Displays appropriate victory, defeat, or draw screen based on the result.
+    /// </summary>
+    /// <param name="result">The final match outcome from ScoreMgr</param>
+    /// <remarks>
+    /// Called automatically when GameEvents.OnMatchEnded is fired.
+    /// This method is the event handler that responds to match completion.
+    /// </remarks>
+    private void HandleMatchEnd(ScoreMgr.GameResult result)
+    {
+        switch (result)
+        {
+            case ScoreMgr.GameResult.PlayerWin:
+                ShowVictory();
+                break;
+            case ScoreMgr.GameResult.AiWin:
+                ShowDefeat();
+                break;
+            case ScoreMgr.GameResult.Draw:
+                ShowScreen("DRAW", Color.yellow);
+                break;
+        }
+    }
+
     public void ShowVictory()
     {
         ShowScreen("VICTORY", Color.green);

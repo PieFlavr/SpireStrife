@@ -87,6 +87,25 @@ public class LevelManager : MonoBehaviour
         if (spireGenerator == null) spireGenerator = FindObjectOfType<SpireGenerator>();
         if (minimaxAI == null) minimaxAI = FindObjectOfType<MinimaxAI>();
         if (performanceStats == null) performanceStats = GetComponent<PerformanceStats>();
+        if (mapController == null) mapController = FindObjectOfType<MapController>();
+    }
+
+    /// <summary>
+    /// Subscribes to game events when the component is enabled.
+    /// Ensures LevelManager responds to match end notifications for difficulty tracking and level progression.
+    /// </summary>
+    private void OnEnable()
+    {
+        GameEvents.OnMatchEnded += OnMatchEnd;
+    }
+
+    /// <summary>
+    /// Unsubscribes from game events when the component is disabled.
+    /// Prevents memory leaks and ensures clean shutdown of the event system.
+    /// </summary>
+    private void OnDisable()
+    {
+        GameEvents.OnMatchEnded -= OnMatchEnd;
     }
 
     private void Start()
@@ -130,6 +149,9 @@ public class LevelManager : MonoBehaviour
         Debug.Log($"LevelManager: Advanced to Level {currentLevel} with difficulty {currentDifficulty:F2}");
 
         ApplyDifficultyToSystems();
+
+        // Broadcast level start event
+        GameEvents.LevelStarted(currentLevel, currentDifficulty);
 
         // Trigger map regeneration if enabled
         if (regenerateMapOnAdvance && mapController != null)
@@ -219,7 +241,13 @@ public class LevelManager : MonoBehaviour
 
     /// <summary>
     /// Called when a match ends. Handles level progression if enabled.
+    /// This is an event handler that responds to GameEvents.OnMatchEnded notifications.
     /// </summary>
+    /// <param name="result">The final match outcome (PlayerWin, AiWin, or Draw)</param>
+    /// <remarks>
+    /// Automatically invoked by the GameEvents system when ScoreMgr finalizes a match.
+    /// Records performance statistics and optionally triggers level advancement.
+    /// </remarks>
     public void OnMatchEnd(ScoreMgr.GameResult result)
     {
         if (performanceStats != null)
