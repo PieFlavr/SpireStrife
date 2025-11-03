@@ -162,6 +162,10 @@ public class HexPathfinder : MonoBehaviour
     /// <summary>
     /// Reconstructs the path from end to start.
     /// </summary>
+    /// <summary>
+    /// Reconstructs the path from end to start.
+    /// NOW returns ALL cells, not a simplified path.
+    /// </summary>
     Vector3[] RetracePath(HexCell startNode, HexCell endNode)
     {
         List<HexCell> path = new List<HexCell>();
@@ -174,40 +178,22 @@ public class HexPathfinder : MonoBehaviour
             currentNode = currentNode.parent;
         }
 
-        // Don't add start node, SimplifyPath logic assumes it
-
-        Vector3[] waypoints = SimplifyPath(path);
-        System.Array.Reverse(waypoints);
-        return waypoints;
-    }
-
-    /// <summary>
-    /// Simplifies the path by removing redundant nodes.
-    /// (This logic is copied from your Pathfinding.cs and adapted)
-    /// </summary>
-    Vector3[] SimplifyPath(List<HexCell> path)
-    {
+        
         List<Vector3> waypoints = new List<Vector3>();
-        Vector2 directionOld = Vector2.zero;
 
-        // Add the end node first (since we're tracing backwards)
-        if(path.Count > 0)
-            waypoints.Add(grid.AxialToWorldPosition(path[0].axial_coords));
+        // Add the start node's position FIRST
+        waypoints.Add(grid.AxialToWorldPosition(startNode.axial_coords));
 
-        for (int i = 1; i < path.Count; i++)
+        // Add the rest of the path cells (which are in reverse order: end -> start)
+        for (int i = path.Count - 1; i >= 0; i--)
         {
-            // Use axial coords to find direction
-            Vector2Int dir = path[i - 1].axial_coords - path[i].axial_coords;
-            Vector2 directionNew = new Vector2(dir.x, dir.y);
-
-            if (directionNew != directionOld)
-            {
-                waypoints.Add(grid.AxialToWorldPosition(path[i].axial_coords));
-            }
-            directionOld = directionNew;
+            waypoints.Add(grid.AxialToWorldPosition(path[i].axial_coords));
         }
+
         return waypoints.ToArray();
     }
+
+    
 
     /// <summary>
     /// Gets the hexagonal distance (heuristic) between two cells.
