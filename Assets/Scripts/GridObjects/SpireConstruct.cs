@@ -27,6 +27,13 @@ public class SpireConstruct : GridObject
         AI = 1
     }
 
+    [Header("Reserve Regeneration")]
+    [Tooltip("How many units this spire generates per turn")]
+    public int reserveRegenPerTurn = 10;
+
+    [Tooltip("Maximum reserve capacity (0 = unlimited)")]
+    public int maxReserve = 100;
+
     [Header("Spire Configuration")]
     [Tooltip("Number of claim points required for a faction to capture this Spire.")]
     public int costToClaim = 10;
@@ -382,6 +389,7 @@ public class SpireConstruct : GridObject
     public void ResetTurn()
     {
         hasCommandedThisTurn = false;
+        RegenerateReserves();
     }
 
     /// <summary>
@@ -517,4 +525,31 @@ public class SpireConstruct : GridObject
             remainingGarrison += unitsCount;
         }
     }
+
+    /// <summary>
+/// Regenerates reserve units for this spire.
+/// </summary>
+    private void RegenerateReserves()
+    {
+        if (reserveRegenPerTurn <= 0)
+            return;
+        
+        // Only regenerate for owned spires (not neutral)
+        if (teamID == (int)OwnerType.Neutral)
+            return;
+        
+        int oldReserve = remainingGarrison;
+        remainingGarrison += reserveRegenPerTurn;
+        
+        // Cap at max if specified
+        if (maxReserve > 0)
+        {
+            remainingGarrison = Mathf.Min(remainingGarrison, maxReserve);
+        }
+        
+        if (debugLogging)
+        {
+            Debug.Log($"[Spire] {name} regenerated reserves: {oldReserve} -> {remainingGarrison} (+{reserveRegenPerTurn})");
+        }
+}
 }
