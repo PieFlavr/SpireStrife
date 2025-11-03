@@ -120,6 +120,35 @@ public class SpireGenerator : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Clears all existing spires from the scene and resets generation state.
+    /// </summary>
+    public void ClearExistingSpires()
+    {
+        foreach (var spire in FindObjectsOfType<SpireConstruct>())
+        {
+            Destroy(spire.gameObject);
+        }
+
+        placedAxials.Clear();
+        placedWorld.Clear();
+        firstPlayerSet = false;
+
+        Debug.Log("SpireGenerator: Cleared all existing spires.");
+    }
+
+    /// <summary>
+    /// Regenerates the map from scratch with current difficulty settings.
+    /// Call this after LevelManager updates the difficulty value.
+    /// </summary>
+    public void RegenerateMap()
+    {
+        ClearExistingSpires();
+        SetDifficultyParams(); // Recalculate difficulty-driven parameters
+        StartCoroutine(GenerateSpiresCoroutine());
+        Debug.Log($"SpireGenerator: Starting regeneration with difficulty {difficulty:F2}");
+    }
+
     // ---------- Difficulty → randomness and distance target ----------
     float Temperature() => Mathf.Lerp(1.5f, 0.25f, difficulty);           // easy noisy, hard greedy
     float TargetDist() => Mathf.Lerp(biasMin, biasMax, difficulty);       // 0→biasMin, 1→biasMax
