@@ -1,0 +1,143 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 110457dda0da76d4c97e624f5d8f9c3f, type: 3}
+  m_Name: ObstacleLayout
+  m_EditorClassIdentifier: 
+  cells:
+  - worldPos: {x: -21, y: 0.31160173, z: 0}
+    gridIndex: 154
+  - worldPos: {x: -19.5, y: 0.39701504, z: -0.8660254}
+    gridIndex: 181
+  - worldPos: {x: -18, y: 0.2941345, z: 0}
+    gridIndex: 210
+  - worldPos: {x: -16.5, y: 0.42056307, z: -0.8660254}
+    gridIndex: 239
+  - worldPos: {x: -15, y: 0.2565054, z: 0}
+    gridIndex: 270
+  - worldPos: {x: -13.5, y: 0.3058181, z: -0.8660254}
+    gridIndex: 301
+  - worldPos: {x: -12, y: 0.33305925, z: -1.7320508}
+    gridIndex: 333
+  - worldPos: {x: -10.5, y: 0.36624867, z: -0.8660254}
+    gridIndex: 367
+  - worldPos: {x: -9, y: 0.46781233, z: 0}
+    gridIndex: 402
+  - worldPos: {x: -7.5, y: 0.48621646, z: -2.598076}
+    gridIndex: 436
+  - worldPos: {x: -7.5, y: 0.4375052, z: -0.8660254}
+    gridIndex: 437
+  - worldPos: {x: -6, y: 0.38389534, z: -5.196152}
+    gridIndex: 471
+  - worldPos: {x: -6, y: 0.38278908, z: 0}
+    gridIndex: 474
+  - worldPos: {x: -4.5, y: 0.3442263, z: -0.8660254}
+    gridIndex: 511
+  - worldPos: {x: -4.5, y: 0.34963322, z: 0.8660254}
+    gridIndex: 512
+  - worldPos: {x: -4.5, y: 0.37123495, z: 9.526279}
+    gridIndex: 517
+  - worldPos: {x: -4.5, y: 0.43804514, z: 11.25833}
+    gridIndex: 518
+  - worldPos: {x: -3, y: 0.3262083, z: -13.856406}
+    gridIndex: 542
+  - worldPos: {x: -3, y: 0.2703572, z: -12.124355}
+    gridIndex: 543
+  - worldPos: {x: -3, y: 0.2715222, z: -10.392304}
+    gridIndex: 544
+  - worldPos: {x: -3, y: 0.35060358, z: -8.660254}
+    gridIndex: 545
+  - worldPos: {x: -3, y: 0.41912976, z: -6.928203}
+    gridIndex: 546
+  - worldPos: {x: -3, y: 0.34616935, z: -5.196152}
+    gridIndex: 547
+  - worldPos: {x: -3, y: 0.37999564, z: -3.4641016}
+    gridIndex: 548
+  - worldPos: {x: -3, y: 0.3212648, z: -1.7320508}
+    gridIndex: 549
+  - worldPos: {x: -3, y: 0.4712148, z: 0}
+    gridIndex: 550
+  - worldPos: {x: -3, y: 0.39357758, z: 1.7320508}
+    gridIndex: 551
+  - worldPos: {x: -3, y: 0.43153134, z: 3.4641016}
+    gridIndex: 552
+  - worldPos: {x: -3, y: 0.2544666, z: 5.196152}
+    gridIndex: 553
+  - worldPos: {x: -3, y: 0.28561428, z: 6.928203}
+    gridIndex: 554
+  - worldPos: {x: -3, y: 0.45325187, z: 8.660254}
+    gridIndex: 555
+  - worldPos: {x: -3, y: 0.32428998, z: 12.124355}
+    gridIndex: 557
+  - worldPos: {x: -3, y: 0.4854681, z: 13.856406}
+    gridIndex: 558
+  - worldPos: {x: -3, y: 0.46128124, z: 17.320507}
+    gridIndex: 560
+  - worldPos: {x: -1.5, y: 0.45992222, z: -2.598076}
+    gridIndex: 588
+  - worldPos: {x: -1.5, y: 0.33154953, z: -0.8660254}
+    gridIndex: 589
+  - worldPos: {x: 0, y: 0.45473677, z: -1.7320508}
+    gridIndex: 629
+  - worldPos: {x: 1.5, y: 0.39222986, z: -0.8660254}
+    gridIndex: 670
+  - worldPos: {x: 3, y: 0.41143608, z: -1.7320508}
+    gridIndex: 709
+  - worldPos: {x: 4.5, y: 0.49031207, z: -0.8660254}
+    gridIndex: 748
+  - worldPos: {x: 6, y: 0.35666382, z: -1.7320508}
+    gridIndex: 785
+  - worldPos: {x: 7.5, y: 0.36746866, z: -0.8660254}
+    gridIndex: 822
+  - worldPos: {x: 9, y: 0.49632826, z: -3.4641016}
+    gridIndex: 856
+  - worldPos: {x: 9, y: 0.47443974, z: 0}
+    gridIndex: 858
+  - worldPos: {x: 9, y: 0.4036947, z: 8.660254}
+    gridIndex: 863
+  - worldPos: {x: 10.5, y: 0.27698907, z: -14.722431}
+    gridIndex: 884
+  - worldPos: {x: 10.5, y: 0.4347968, z: -12.990381}
+    gridIndex: 885
+  - worldPos: {x: 10.5, y: 0.4067216, z: -11.25833}
+    gridIndex: 886
+  - worldPos: {x: 10.5, y: 0.39674777, z: -9.526279}
+    gridIndex: 887
+  - worldPos: {x: 10.5, y: 0.29924095, z: -7.7942286}
+    gridIndex: 888
+  - worldPos: {x: 10.5, y: 0.41073442, z: -6.0621777}
+    gridIndex: 889
+  - worldPos: {x: 10.5, y: 0.34814817, z: -4.330127}
+    gridIndex: 890
+  - worldPos: {x: 10.5, y: 0.436302, z: -2.598076}
+    gridIndex: 891
+  - worldPos: {x: 10.5, y: 0.42140257, z: -0.8660254}
+    gridIndex: 892
+  - worldPos: {x: 10.5, y: 0.39740402, z: 0.8660254}
+    gridIndex: 893
+  - worldPos: {x: 10.5, y: 0.43878475, z: 2.598076}
+    gridIndex: 894
+  - worldPos: {x: 10.5, y: 0.27543953, z: 4.330127}
+    gridIndex: 895
+  - worldPos: {x: 10.5, y: 0.498557, z: 6.0621777}
+    gridIndex: 896
+  - worldPos: {x: 10.5, y: 0.2784818, z: 7.7942286}
+    gridIndex: 897
+  - worldPos: {x: 10.5, y: 0.40245014, z: 9.526279}
+    gridIndex: 898
+  - worldPos: {x: 10.5, y: 0.44381624, z: 11.25833}
+    gridIndex: 899
+  - worldPos: {x: 10.5, y: 0.2653067, z: 12.990381}
+    gridIndex: 900
+  - worldPos: {x: 10.5, y: 0.45081928, z: 14.722431}
+    gridIndex: 901
+  - worldPos: {x: 10.5, y: 0.2806254, z: 16.454483}
+    gridIndex: 902

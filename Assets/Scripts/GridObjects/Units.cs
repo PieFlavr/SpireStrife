@@ -58,6 +58,13 @@ public class Units : GridObject
     [HideInInspector]
     public GridObject targetObject;
 
+    [Header("Visuals")]
+    [Tooltip("Prefab used to render individual units for this group (fallbacks to UnitMgr.inst.unitPrefab if null)")]
+    public GameObject unitPrefab;
+    private readonly List<Unit> visualUnits = new List<Unit>();
+    private Vector3[] plannedWaypoints;
+    public event System.Action<Units> MovementResolved;
+
     protected override void SetObjectType()
     {
         objectType = GridObjectType.Unit;
@@ -278,6 +285,12 @@ public class Units : GridObject
         // targetObject = where they're going
 
         Debug.Log($"{unitCount} units from Team {teamID} (from {owner?.GetType().Name}) queued to move");
+
+        // Queue with turn manager and generate preview visuals in source cell
+        if (TurnManager.inst != null)
+            TurnManager.inst.QueueUnits(this);
+
+        GenerateVisuals(unitCount, parentCell);
     }
 
     /// <summary>
@@ -299,6 +312,7 @@ public class Units : GridObject
         }
 
         unitCount = finalCount;
+        UpdateVisualsFromCount(); // ensure visuals match casualties
 
         // Move to destination cell
         HexCell destination = plannedPath[plannedPath.Count - 1];
@@ -321,8 +335,45 @@ public class Units : GridObject
         if (targetObject is SpireConstruct spire)
             spire.OnUnitsArrived(this);
 
+        // Hide visuals on arrival (garrisoned units aren't individually visible)
+        DestroyVisuals();
+
         plannedPath = null;
         targetObject = null;
+    }
+
+    /// <summary>
+    /// Executes movement, playing animation first when waypoints are available.
+    /// </summary>
+    public void ExecuteMovementAnimated()
+    {
+        if (plannedWaypoints != null && MoveUnits.inst != null)
+        {
+            StartMovementAnimation(plannedWaypoints, () => { ExecuteMovement(); MovementResolved?.Invoke(this); });
+        }
+        else
+        {
+            ExecuteMovement();
+            MovementResolved?.Invoke(this);
+        }
+    }
+
+    public void ExecuteMovementAnimated(System.Action onComplete)
+    {
+        if (plannedWaypoints != null && MoveUnits.inst != null)
+        {
+            StartMovementAnimation(plannedWaypoints, () => { ExecuteMovement(); onComplete?.Invoke(); });
+        }
+        else
+        {
+            ExecuteMovement();
+            onComplete?.Invoke();
+        }
+    }
+
+    public void ExecuteMovementAnimatedWithCallback(System.Action onComplete)
+    {
+        ExecuteMovementAnimated(onComplete);
     }
 
     /// <summary>
@@ -345,8 +396,9 @@ public class Units : GridObject
     /// <summary>
     /// Destroys this unit group and cleans up references.
     /// </summary>
-    private void DestroyUnitGroup()
+    public void DestroyUnitGroup()
     {
+        DestroyVisuals();
         owner = null; // Clear reference before destroying
         OnRemovedFromGrid();
         Destroy(gameObject);
@@ -382,5 +434,85 @@ public class Units : GridObject
         string stateInfo = state == UnitState.Traversing ? $" (traversing to {targetObject?.GetType().Name})" : "";
         string ownerInfo = owner != null ? $" (belongs to {owner.GetType().Name})" : " (neutral/independent)";
         return $"Units[{unitCount}] Team {teamID} at {GridPosition}{ownerInfo}{stateInfo}";
+    }
+
+    // =========================
+    // Visual helpers
+    // =========================
+
+    private void GenerateVisuals(int count, HexCell cell)
+    {
+        if (cell == null) return;
+
+        // Prefer per-group prefab; fallback to UnitMgr setting
+        GameObject prefab = unitPrefab != null ? unitPrefab : UnitMgr.inst?.unitPrefab;
+        if (prefab == null || UnitMgr.inst == null) return;
+
+        DestroyVisuals(); // Clear old
+
+        var offsets = UnitMgr.inst.GetHexOffsets(count, UnitMgr.inst.spacing);
+        UnitMgr.inst.FitOffsetsInApothem(offsets, UnitMgr.inst.apothem - UnitMgr.inst.edgeMargin);
+
+        var basePos = cell.transform.position;
+        for (int i = 0; i < offsets.Count; i++)
+        {
+            Vector2 o = offsets[i];
+            Vector3 pos = new Vector3(basePos.x + o.x, UnitMgr.inst.yHeight, basePos.z + o.y);
+            GameObject unitObj = Object.Instantiate(prefab, pos, Quaternion.identity, transform); // Parent visuals under this Units
+            Unit unit = unitObj.GetComponent<Unit>();
+            if (unit != null)
+            {
+                unit.position = unitObj.transform.localPosition;
+                unit.speed = 0f;
+                unit.desiredSpeed = 0f;
+                // Ensure visual unit reflects logical team of this group
+                unit.teamID = this.teamID;
+                visualUnits.Add(unit);
+            }
+        }
+    }
+
+    private void UpdateVisualsFromCount()
+    {
+        int excess = visualUnits.Count - unitCount;
+        for (int i = 0; i < excess; i++)
+        {
+            if (visualUnits.Count > 0)
+            {
+                Unit last = visualUnits[visualUnits.Count - 1];
+                visualUnits.RemoveAt(visualUnits.Count - 1);
+                if (last != null) Object.Destroy(last.gameObject);
+            }
+        }
+    }
+
+    private void DestroyVisuals()
+    {
+        foreach (var u in visualUnits)
+        {
+            if (u != null) Object.Destroy(u.gameObject);
+        }
+        visualUnits.Clear();
+    }
+
+    public void StartMovementAnimation(Vector3[] waypoints, System.Action onComplete)
+    {
+        if (visualUnits.Count == 0)
+        {
+            onComplete?.Invoke();
+            return;
+        }
+        if (MoveUnits.inst == null)
+        {
+            onComplete?.Invoke();
+            return;
+        }
+        // Use pathfinding waypoints as-is (world space)
+        MoveUnits.inst.MoveUnitsAlongPath(visualUnits, waypoints, 0f, false, onComplete);
+    }
+
+    public void SetPlannedWaypoints(Vector3[] waypoints)
+    {
+        plannedWaypoints = waypoints;
     }
 }
