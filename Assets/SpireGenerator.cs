@@ -79,7 +79,7 @@ public class SpireGenerator : MonoBehaviour
         neutralMinDistDyn = Mathf.RoundToInt(Mathf.Lerp(easy, hard, difficulty));
     }
 
-    IEnumerator GenerateSpiresCoroutine()
+    public IEnumerator GenerateSpiresCoroutine()
     {
         placedAxials.Clear();
         placedWorld.Clear();

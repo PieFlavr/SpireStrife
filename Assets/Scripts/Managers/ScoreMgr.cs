@@ -1,3 +1,7 @@
+// Author: Lucas Pinto
+// Original Date: 2025-10-25
+// Description:
+
 using System.Linq;
 using UnityEngine;
 
@@ -76,29 +80,32 @@ public class ScoreMgr : MonoBehaviour
 		lastPlayerSpires = GameMgr.inst.playerSpires.Count;
 		lastAiSpires = GameMgr.inst.aiSpires.Count;
 
-		// One-sided finish immediate-win rule
+		// 1. One-sided finish immediate-win rule
 		if (lastPlayerUnits == 0 && lastAiUnits > 0)
 		{
 			if (lastAiSpires > lastPlayerSpires)
 			{
 				result = GameResult.AiWin;
 				Debug.Log("Result: AI wins (player finished units and AI already has more spires)");
-				return;
+				NotifyMatchEnd();
+                return;
 			}
 			// else: keep running until AI also finishes units
 		}
+		// 2. One-sided Player win
 		else if (lastAiUnits == 0 && lastPlayerUnits > 0)
 		{
 			if (lastPlayerSpires > lastAiSpires)
 			{
 				result = GameResult.PlayerWin;
 				Debug.Log("Result: Player wins (AI finished units and Player already has more spires)");
-				return;
+                NotifyMatchEnd();
+                return;
 			}
 			// else: keep running until Player also finishes units
 		}
 
-		// Both finished -> final comparison including draw
+		// 3. Both finished -> final comparison including draw
 		if (lastPlayerUnits == 0 && lastAiUnits == 0)
 		{
 			if (lastPlayerSpires > lastAiSpires)
@@ -116,10 +123,19 @@ public class ScoreMgr : MonoBehaviour
 				result = GameResult.Draw;
 				Debug.Log("Result: Draw (equal spires when both sides finished units)");
 			}
-		}
+            NotifyMatchEnd();
+        }
 	}
 
-	void Update()
+    private void NotifyMatchEnd()
+    {
+        // Notify LevelManager of match end
+        if (LevelManager.inst != null)
+        {
+            LevelManager.inst.OnMatchEnd(result);
+        }
+    }
+    void Update()
     {
 		// Poll-based check is acceptable here since finalization happens once per match
         

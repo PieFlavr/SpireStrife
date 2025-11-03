@@ -579,7 +579,7 @@ GameObject:
   - component: {fileID: 5458694126114342296}
   - component: {fileID: -6177242089895337310}
   - component: {fileID: 147638087267573282}
-  m_Layer: 0
+  m_Layer: 7
   m_Name: Spire
   m_TagString: Spire
   m_Icon: {fileID: 0}
@@ -620,10 +620,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   objectType: 0
-  teamID: 0
+  teamID: -1
   parentCell: {fileID: 0}
   costToClaim: 10
   initialGarrison: 100
+  startingOwner: -1
+  playerColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  aiColor: {r: 0, g: 0, b: 1, a: 1}
+  neutralColor: {r: 1, g: 1, b: 1, a: 1}
+  debugLogging: 0
+  remainingGarrison: 0
 --- !u!114 &147638087267573282
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -637,7 +643,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   costText: {fileID: 0}
-  costValue: 0
+  displayTeamID: 0
 --- !u!1 &3338256335044545589
 GameObject:
   m_ObjectHideFlags: 0
