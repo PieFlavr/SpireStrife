@@ -94,8 +94,14 @@ public class MapController : MonoBehaviour
 
         if (TurnManager.inst != null)
         {
-            // Reset turn counter if you add it
-            // TurnManager.inst.ResetTurns();
+            TurnManager.inst.StartGame();
+            Debug.Log("MapController: Reset TurnManager.");
+        }
+
+        if (LevelManager.inst != null && LevelManager.inst.performanceStats != null)
+        {
+            LevelManager.inst.performanceStats.BeginMatchTracking();
+            Debug.Log("MapController: Reset PerformanceStats tracking.");
         }
     }
 
