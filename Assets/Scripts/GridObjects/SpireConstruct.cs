@@ -211,7 +211,7 @@ public class SpireConstruct : GridObject
             return;
         }
 
-        // Opposition — apply claim progress
+        // Opposition â€” apply claim progress
         int contribution = arriving.unitCount;
         if (contribution <= 0)
         {
