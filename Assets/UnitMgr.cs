@@ -95,7 +95,7 @@ public class UnitMgr : MonoBehaviour
     // Hex packing helpers
     // =========================
 
-    List<Vector2> GetHexOffsets(int count, float s)
+    public List<Vector2> GetHexOffsets(int count, float s)
     {
         var result = new List<Vector2>(count);
         if (count <= 0) return result;
@@ -139,7 +139,7 @@ public class UnitMgr : MonoBehaviour
         return result;
     }
 
-    void FitOffsetsInApothem(List<Vector2> offsets, float targetApothem)
+    public void FitOffsetsInApothem(List<Vector2> offsets, float targetApothem)
     {
         float maxR = 0f;
         for (int i = 0; i < offsets.Count; i++)

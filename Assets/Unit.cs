@@ -4,6 +4,9 @@ using UnityEngine;
 
 public class Unit : MonoBehaviour
 {
+    [Header("Team/Ownership")]
+    public int teamID = 0; // 0 = Player, 1 = AI (default player)
+
     public Vector3 position = Vector3.zero;
     public Vector3 velocity = Vector3.zero;
     public float speed;

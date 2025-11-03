@@ -13,14 +13,45 @@ using UnityEngine;
 /// </summary>
 public class SpireConstruct : GridObject
 {
+    // Raised whenever this spire's team ownership changes via ClaimBy.
+    // Args: (spire, oldTeamID, newTeamID)
+    public static event System.Action<SpireConstruct, int, int> OwnershipChanged;
+    // Raised when a spire is placed on the grid (created/added to a cell)
+    public static event System.Action<SpireConstruct> SpirePlaced;
+    // Raised when a spire is removed from the grid
+    public static event System.Action<SpireConstruct> SpireRemoved;
+    public enum OwnerType
+    {
+        Neutral = -1,
+        Player = 0,
+        AI = 1
+    }
+
     [Header("Spire Configuration")]
     [Tooltip("Number of claim points required for a faction to capture this Spire.")]
     public int costToClaim = 10;
+    [Tooltip("If > 0, seed this many units as initial garrison when placed.")]
+    public int initialGarrison = 100;
+
+    [Header("Starting Ownership")]
+    [Tooltip("Who owns this Spire when it is constructed/placed.")]
+    public OwnerType startingOwner = OwnerType.Neutral;
+
+    [Header("Visuals")] 
+    [Tooltip("Color to use for Player-owned spires (team 0).")]
+    public Color playerColor = Color.yellow;
+    [Tooltip("Color to use for AI-owned spires (team 1).")]
+    public Color aiColor = Color.blue;
+    [Tooltip("Color to use for Neutral spires (team -1).")]
+    public Color neutralColor = Color.white;
 
     /// <summary>
     /// Tracks accumulated claim progress per team (teamID -> progress).
     /// </summary>
     private readonly Dictionary<int, int> claimProgress = new Dictionary<int, int>();
+
+    [Header("Debug")]
+    public bool debugLogging = false;
 
     /// <summary>
     /// Unit groups currently garrisoned at this Spire.
@@ -40,13 +71,76 @@ public class SpireConstruct : GridObject
     }
 
     /// <summary>
+    /// Ensure team and visuals are initialized even if this spire is placed in the scene
+    /// without going through HexCell.TryAddGridObject (e.g., prefabs dropped in editor).
+    /// This avoids default teamID=0 (Player) causing incorrect colors on first capture.
+    /// </summary>
+    protected override void InitializeGridObject()
+    {
+        base.InitializeGridObject();
+        // If team was left at default, apply startingOwner now
+        if (startingOwner == OwnerType.Player || startingOwner == OwnerType.AI || startingOwner == OwnerType.Neutral)
+        {
+            teamID = (int)startingOwner;
+            ApplyTeamLayer(teamID);
+            UpdateVisualsForTeam(teamID);
+        }
+    }
+
+    private void OnValidate()
+    {
+        // Keep visuals/layer/team in sync when tweaking in the Inspector
+        if (!Application.isPlaying)
+        {
+            teamID = (int)startingOwner;
+        }
+        ApplyTeamLayer(teamID);
+        UpdateVisualsForTeam(teamID);
+    }
+    public int remainingGarrison;
+    public void Start()
+    {
+        remainingGarrison = initialGarrison;    
+    }
+    /// <summary>
     /// Called when this spire is placed on a HexCell.
     /// Refreshes the local garrison list from the cell contents.
     /// </summary>
     public override void OnPlacedOnGrid(HexCell cell)
     {
         base.OnPlacedOnGrid(cell);
-        RefreshGarrisonFromCell();
+
+        // Set initial team based on startingOwner if not already set elsewhere
+        // We treat any non -1/0/1 custom value as "already set" and leave it alone.
+        if (startingOwner == OwnerType.Player || startingOwner == OwnerType.AI || startingOwner == OwnerType.Neutral)
+        {
+            teamID = (int)startingOwner;
+            if (debugLogging) Debug.Log($"Spire placed: startingOwner={startingOwner}, teamID={teamID}");
+        }
+
+        // Sync layer and visuals based on current team
+        ApplyTeamLayer(teamID);
+        UpdateVisualsForTeam(teamID);
+
+    RefreshGarrisonFromCell();
+
+        // Optional: Seed initial garrison for quick testing / setups
+        // Only auto-seed for non-neutral starting owners
+        if (initialGarrison > 0 && GetTotalGarrisonCount() == 0 && teamID != (int)OwnerType.Neutral)
+        {
+            var seeded = SpawnGarrison(initialGarrison);
+            if (seeded == null)
+            {
+                Debug.LogWarning("Failed to seed initial garrison: could not add Units to cell.");
+            }
+            else if (debugLogging)
+            {
+                Debug.Log($"Seeded initial garrison {initialGarrison} for team {teamID}");
+            }
+        }
+
+        // Notify listeners that this spire has been placed/created
+        SpirePlaced?.Invoke(this);
     }
 
     /// <summary>
@@ -58,6 +152,8 @@ public class SpireConstruct : GridObject
         base.OnRemovedFromGrid();
         garrisonedUnits.Clear();
         claimProgress.Clear();
+        // Notify listeners that this spire has been removed
+        SpireRemoved?.Invoke(this);
     }
 
     /// <summary>
@@ -123,7 +219,7 @@ public class SpireConstruct : GridObject
     /// <param name="path">List of HexCells forming the route (including source and destination)</param>
     /// <param name="target">Target SpireConstruct</param>
     /// <returns>True if the command was accepted</returns>
-    public bool CommandUnits(int sendCount, List<HexCell> path, SpireConstruct target)
+    public bool CommandUnits(int sendCount, List<HexCell> path, SpireConstruct target, Vector3[] waypoints = null)
     {
         if (hasCommandedThisTurn)
         {
@@ -144,6 +240,7 @@ public class SpireConstruct : GridObject
         }
 
         int available = GetTotalGarrisonCount();
+        if (debugLogging) Debug.Log($"CommandUnits from team {teamID} -> target team {target?.teamID}, send={sendCount}, available={available}");
         if (available < sendCount)
         {
             Debug.LogWarning("Not enough units in garrison");
@@ -173,8 +270,8 @@ public class SpireConstruct : GridObject
         // Create new Units group representing the dispatched force
         GameObject unitObj = new GameObject($"Units_{teamID}");
         Units dispatched = unitObj.AddComponent<Units>();
-        dispatched.unitCount = sendCount;
-        dispatched.teamID = this.teamID;
+    dispatched.unitCount = sendCount;
+    dispatched.teamID = this.teamID;
 
         // Place on this spire's cell
         if (!parentCell.TryAddGridObject(dispatched))
@@ -185,10 +282,16 @@ public class SpireConstruct : GridObject
         }
 
         // Keep owner as source while traversing
-        dispatched.AttachToOwner(this);
+    dispatched.AttachToOwner(this);
+    if (debugLogging) Debug.Log($"Dispatched units created team={dispatched.teamID} count={dispatched.unitCount}");
 
         // Queue movement to target
         dispatched.QueueMovement(path, target);
+        if (waypoints != null)
+        {
+            // Store waypoints; TurnManager will play animation on resolve.
+            dispatched.SetPlannedWaypoints(waypoints);
+        }
 
         hasCommandedThisTurn = true;
         return true;
@@ -203,6 +306,7 @@ public class SpireConstruct : GridObject
     public void OnUnitsArrived(Units arriving)
     {
         if (arriving == null) return;
+        if (debugLogging) Debug.Log($"OnUnitsArrived: arriving team={arriving.teamID}, spire team={teamID}, count={arriving.unitCount}");
 
         // Reinforcement for the owning team
         if (arriving.teamID == teamID)
@@ -211,7 +315,7 @@ public class SpireConstruct : GridObject
             return;
         }
 
-        // Opposition — apply claim progress
+        // Opposition - apply claim progress
         int contribution = arriving.unitCount;
         if (contribution <= 0)
         {
@@ -231,6 +335,7 @@ public class SpireConstruct : GridObject
             arriving.unitCount -= used;
 
             // Claim the spire
+            if (debugLogging) Debug.Log($"Claiming spire by team {arriving.teamID}");
             ClaimBy(arriving.teamID);
 
             // Leftover units (if any) become garrisoned at the new owner
@@ -259,9 +364,15 @@ public class SpireConstruct : GridObject
     /// <param name="newTeamID">ID of the claiming team</param>
     private void ClaimBy(int newTeamID)
     {
+        int oldTeam = teamID;
         teamID = newTeamID;
         claimProgress.Clear();
-        Debug.Log($"Spire at {GridPosition} claimed by Team {newTeamID}");
+        if (debugLogging) Debug.Log($"Spire at {GridPosition} claimed by Team {newTeamID}");
+        // Update layer and visuals for UI selection and interaction
+        ApplyTeamLayer(newTeamID);
+        UpdateVisualsForTeam(newTeamID);
+        // Notify listeners (e.g., GameMgr) that ownership changed
+        OwnershipChanged?.Invoke(this, oldTeam, newTeamID);
         // (Optional) Notify visuals / UI / game manager here.
     }
 
@@ -287,5 +398,123 @@ public class SpireConstruct : GridObject
     public IReadOnlyList<Units> GetGarrisonedUnits()
     {
         return garrisonedUnits.AsReadOnly();
+    }
+
+    /// <summary>
+    /// Spawns a new garrison Units group on this spire's cell and registers it.
+    /// </summary>
+    public Units SpawnGarrison(int count)
+    {
+        if (count <= 0 || parentCell == null) return null;
+        GameObject unitObj = new GameObject($"Units_{teamID}");
+        Units u = unitObj.AddComponent<Units>();
+        u.unitCount = count;
+        u.teamID = this.teamID;
+        if (parentCell.TryAddGridObject(u))
+        {
+            RegisterGarrison(u);
+            return u;
+        }
+        Destroy(unitObj);
+        return null;
+    }
+
+   
+    public int GetRemainingClaimCostForTeam(int contributorTeamID)
+    {
+        int current = claimProgress.ContainsKey(contributorTeamID) ? claimProgress[contributorTeamID] : 0;
+        return Mathf.Max(0, costToClaim - current);
+    }
+
+    /// <summary>
+    /// Update the GameObject's layer based on team for selection/interaction filters.
+    /// Expects layers named "Player", "Ai", and optionally "Default" for neutral.
+    /// </summary>
+    private void ApplyTeamLayer(int team)
+    {
+        string layerName = team == (int)OwnerType.Player
+            ? "Player"
+            : team == (int)OwnerType.AI
+                ? "Ai"
+                : "Neutral"; // Neutral layer explicitly
+        int layer = LayerMask.NameToLayer(layerName);
+        if (layer >= 0)
+        {
+            gameObject.layer = layer;
+        }
+    }
+
+    /// <summary>
+    /// Set simple color tint based on team. Attempts to find a Renderer on this object or its children.
+    /// If no renderer found, does nothing.
+    /// </summary>
+    private void UpdateVisualsForTeam(int team)
+    {
+        Color c = team == (int)OwnerType.Player
+            ? playerColor
+            : team == (int)OwnerType.AI
+                ? aiColor
+                : neutralColor;
+
+        // Try to tint all renderers safely
+        var renderers = GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0) return;
+
+        foreach (var r in renderers)
+        {
+            if (r == null) continue;
+
+            // SpriteRenderer special-case
+            if (r is SpriteRenderer sr)
+            {
+                sr.color = c;
+                continue;
+            }
+
+            var mat = r.sharedMaterial; // do not instantiate
+            if (mat != null)
+            {
+                // Use MPB when possible; pick property based on shader
+                var mpb = new MaterialPropertyBlock();
+                r.GetPropertyBlock(mpb);
+                if (mat.HasProperty("_BaseColor"))
+                {
+                    mpb.SetColor("_BaseColor", c);
+                }
+                else if (mat.HasProperty("_Color"))
+                {
+                    mpb.SetColor("_Color", c);
+                }
+                else
+                {
+                    // Fallback: set via material color (may instance the material)
+                    try { r.material.color = c; } catch { /* ignore */ }
+                    r.SetPropertyBlock(mpb);
+                    continue;
+                }
+                r.SetPropertyBlock(mpb);
+            }
+        }
+    }
+
+    public void CaptureSpire(int unitsCount, int teamID)
+    {
+        if (unitsCount <= 0) return;
+
+        if (teamID != this.teamID)
+        {
+            remainingGarrison -= unitsCount;
+
+            if (remainingGarrison <= 0)
+            {
+                // Capture the spire
+                ClaimBy(teamID);
+                remainingGarrison = Mathf.Abs(remainingGarrison); // Start adding if negative
+            }
+        }
+        else
+        {
+            remainingGarrison += unitsCount;
+        }
     }
 }

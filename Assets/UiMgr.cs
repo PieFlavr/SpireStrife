@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Unity.VisualScripting;
 using UnityEngine;
 
@@ -9,6 +10,14 @@ public class UiMgr : MonoBehaviour
     public HexCell startCell;
     public HexCell targetCell;
     public static UiMgr inst;
+    public SpireConstruct selectedSpire;
+    public SpireConstruct targetSpire;
+
+    [Header("Dev/Test Settings")]
+    [Tooltip("If true, automatically generate units at the source spire for each command.")]
+    public bool alwaysGenerateOnCommand = true;
+    [Tooltip("Number of units to auto-generate when issuing a command (if enabled).")]
+    public int generateCountPerCommand = 10;
     public void Awake()
     {
         inst = this;
@@ -25,6 +34,11 @@ public class UiMgr : MonoBehaviour
     // Update is called once per frame
     void Update()
 {
+        // Disable input when it's not the player's planning phase
+        if (TurnManager.inst != null && !TurnManager.inst.PlayerInputEnabled)
+        {
+            return;
+        }
         if (Input.GetMouseButtonDown(0))
         {
             Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
@@ -41,7 +55,8 @@ public class UiMgr : MonoBehaviour
                     if (root.layer == spireLayer)
                     {
                         Debug.Log("Spire hit on root: " + root.name + ", Layer: " + LayerMask.LayerToName(root.layer));
-                        startCell = root.GetComponentInParent<SpireConstruct>().parentCell;
+                        selectedSpire = root.GetComponentInParent<SpireConstruct>();
+                        startCell = selectedSpire != null ? selectedSpire.parentCell : null;
                         SelectCell(startCell);
                     }
                 }
@@ -52,7 +67,7 @@ public class UiMgr : MonoBehaviour
         Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
         RaycastHit hit;
 
-        if (Physics.Raycast(ray, out hit))
+        if (Physics.Raycast(ray, out hit) && selectedSpire != null)
         {
             // Get the root object (parent) or use transform.root as needed
             GameObject root = hit.collider.transform.root.gameObject;
@@ -61,10 +76,16 @@ public class UiMgr : MonoBehaviour
 
             if (root.GetComponentInParent<SpireConstruct>() != null)
             {
-                if (root.layer == neutralLayer || root.layer == aiLayer)
-                {
+                if (root.layer == neutralLayer || root.layer == aiLayer || root.layer == LayerMask.NameToLayer("Player"))
+                    {
                         Debug.Log("Spire hit on root: " + root.name + ", Layer: " + LayerMask.LayerToName(root.layer));
-                        SelectTargetCell(root.GetComponentInParent<SpireConstruct>().parentCell);
+                        targetSpire = root.GetComponentInParent<SpireConstruct>();
+                        if (targetSpire == selectedSpire)
+                        {
+                            Debug.Log("Cannot target the same spire as the source.");
+                            return;
+                        }
+                        SelectTargetCell(targetSpire != null ? targetSpire.parentCell : null);
                 }
             }
         }
@@ -86,7 +107,7 @@ public class UiMgr : MonoBehaviour
     private List<LineRenderer> pathLineRenderers = new List<LineRenderer>();
     private Vector3[] currentPath;
 
-    private void SelectCell(HexCell cell)
+    public void SelectCell(HexCell cell)
     {
         if (cell == currentlyTargetCell)
         {
@@ -105,10 +126,8 @@ public class UiMgr : MonoBehaviour
         ClearPath();
     }
 
-    // --- MODIFIED ---
     private void ClearPath()
     {
-        // --- NEW ---
         // Restore the original color of all cells in the previous path
         foreach (var cellColorPair in previousPathCellColors)
         {
@@ -121,7 +140,6 @@ public class UiMgr : MonoBehaviour
             }
         }
         previousPathCellColors.Clear(); // Clear the color cache
-        // --- END NEW ---
 
         currentPath = null;
         
@@ -137,7 +155,7 @@ public class UiMgr : MonoBehaviour
         pathLineRenderers.Clear();
     }
 
-    private void SelectTargetCell(HexCell cell)
+    public void SelectTargetCell(HexCell cell)
     {
         if (cell == currentlySelectedCell)
         {
@@ -172,7 +190,6 @@ public class UiMgr : MonoBehaviour
         PathRequestManager.RequestPath(startPos, targetPos, new List<Vector3>(), OnPathFound);
     }
 
-    // --- MODIFIED ---
     private void OnPathFound(Vector3[] path, bool pathSuccessful)
     {
         if (pathSuccessful)
@@ -180,16 +197,112 @@ public class UiMgr : MonoBehaviour
             Debug.Log("Path found with " + path.Length + " waypoints.");
             currentPath = path;
             ColorPathCells();
-            bool generated = UnitMgr.inst.generateUnits(currentPath[0] != null ? grid.GetCellFromWorldPosition(currentPath[0]) : null);
-            // once unit are generated, give them move order to target cell
-            bool moved = false;
-            if (generated)
+
+            // Convert to cell path
+            List<HexCell> cellPath = new List<HexCell>();
+            foreach (var pos in path)
             {
-                moved = UnitMgr.inst.moveUnitsAlongPath(currentPath);
+                var c = grid.GetCellFromWorldPosition(pos);
+                if (c != null) cellPath.Add(c);
             }
-            if (!generated || !moved)
+
+            // Use cached spire references from click selection; fall back to lookup if needed
+            SpireConstruct startSpire = selectedSpire;
+            SpireConstruct destSpire = targetSpire;
+            if (startSpire == null && currentlySelectedCell != null)
             {
-                Debug.Log("Failed to generate or move units along path.");
+                startSpire = currentlySelectedCell
+                    .GetComponentInChildren<SpireConstruct>();
+            }
+            if (destSpire == null && currentlyTargetCell != null)
+            {
+                destSpire = currentlyTargetCell
+                    .GetComponentInChildren<SpireConstruct>();
+            }
+
+            if (startSpire != null && destSpire != null)
+            {
+                // Determine how many units are needed to claim, including travel losses.
+                int playerTeam = TurnManager.inst != null ? TurnManager.inst.playerTeamId : 0;
+                int needToClaim = destSpire.GetRemainingClaimCostForTeam(playerTeam);
+
+                // Sum per-step movement loss: loss = steps = waypoints - 1
+                int travelLoss = Mathf.Max(0, path.Length - 1);
+
+                // Units needed = claim + travel loss
+                int desiredSend = Mathf.Max(1, needToClaim + travelLoss);
+
+                int send = 0;
+                if (alwaysGenerateOnCommand)
+                {
+                    // Consume from the spire's remaining reserve when generating.
+                    int reserve = startSpire.remainingGarrison;
+                    if (reserve <= 0)
+                    {
+                        Debug.LogWarning("No reserve remaining at source spire to generate units.");
+                        ClearPath();
+                        return;
+                    }
+
+                    // Ensure we spawn enough to meet either desiredSend or the configured minimum per command.
+                    int minToSendThisCommand = generateCountPerCommand > 0 ? Mathf.Max(desiredSend, generateCountPerCommand) : desiredSend;
+
+                    // If reserve is less than generateCountPerCommand, send all remaining; otherwise cap by reserve.
+                    int toSpawn = reserve < generateCountPerCommand ? reserve : Mathf.Min(minToSendThisCommand, reserve);
+                    if (toSpawn <= 0)
+                    {
+                        Debug.LogWarning("Nothing to spawn after applying reserve constraints.");
+                        ClearPath();
+                        return;
+                    }
+
+                    var spawned = startSpire.SpawnGarrison(toSpawn);
+                    if (spawned == null)
+                    {
+                        Debug.LogWarning("Failed to spawn units at source spire.");
+                        ClearPath();
+                        return;
+                    }
+
+                    // Reduce remaining reserve by the amount generated
+                    startSpire.remainingGarrison -= toSpawn;
+
+                    int available = startSpire.GetTotalGarrisonCount();
+                    // Send the generated amount (bounded by what's available on the cell)
+                    send = Mathf.Min(available, toSpawn);
+                }
+                else
+                {
+                    // Use existing garrison only
+                    int available = startSpire.GetTotalGarrisonCount();
+                    send = Mathf.Min(available, desiredSend);
+                    if (send <= 0)
+                    {
+                        Debug.LogWarning("No units available at source spire.");
+                        ClearPath();
+                        return;
+                    }
+                }
+
+                // Issue the command
+                bool commanded = startSpire.CommandUnits(send, cellPath, destSpire, path);
+                if (!commanded)
+                {
+                    Debug.Log("Failed to command units.");
+                    ClearPath();
+                }
+                else
+                {
+                    // Immediately resolve player turn (no queue): player then AI then back to player
+                    if (TurnManager.inst != null)
+                    {
+                        TurnManager.inst.EndPlayerTurn();
+                    }
+                }
+            }
+            else
+            {
+                Debug.LogError("Missing SpireConstruct on selected/target cells.");
                 ClearPath();
             }
         }
@@ -201,42 +314,20 @@ public class UiMgr : MonoBehaviour
         }
     }
 
-    // --- NEW ---
-    /// <summary>
-    /// Colors all cells along the currentPath.
-    /// Assumes grid.GetCellFromWorldPosition() exists.
-    /// </summary>
+    
     private void ColorPathCells()
     {
-        if (currentPath == null || grid == null)
-            return;
-
+        if (currentPath == null || grid == null) return;
         previousPathCellColors.Clear();
 
-        for (int i = 0; i < currentPath.Length - 1; i++)
+        for (int i = 0; i < currentPath.Length; i++)
         {
-            Vector3 start = currentPath[i];
-            Vector3 end = currentPath[i + 1];
-
-            // Get the cells corresponding to start and end
-            HexCell startCell = grid.GetCellFromWorldPosition(start);
-            HexCell endCell = grid.GetCellFromWorldPosition(end);
-
-            if (startCell == null || endCell == null)
-                continue;
-
-            // Use a hex line algorithm to get all cells between start and end
-            List<HexCell> lineCells = grid.GetCellsAlongLine(startCell, endCell);
-
-            foreach (HexCell cell in lineCells)
+            HexCell cell = grid.GetCellFromWorldPosition(currentPath[i]);
+            if (cell != null && cell != currentlySelectedCell && cell != currentlyTargetCell)
             {
-                if (cell != currentlySelectedCell && cell != currentlyTargetCell)
-                {
-                    if (!previousPathCellColors.ContainsKey(cell))
-                        previousPathCellColors[cell] = cell.GetColor();
-
-                    cell.SetColor(pathColor);
-                }
+                if (!previousPathCellColors.ContainsKey(cell))
+                    previousPathCellColors[cell] = cell.GetColor();
+                cell.SetColor(pathColor);
             }
         }
     }
@@ -252,6 +343,8 @@ public class UiMgr : MonoBehaviour
             currentlyTargetCell.SetColor(previousTargetColor);
             currentlyTargetCell = null;
         }
+        selectedSpire = null;
+        targetSpire = null;
         ClearPath();
     }
 }

@@ -13,6 +13,11 @@ public class SpireGenerator : MonoBehaviour
     public int aiSpireCount = 1;
     public int neutralSpireCount = 10;
 
+    [Header("Spire Initial Garrison")]
+    public int spireInitialGarrison = 1000;
+    public int neutralSpireInitialGarrison = 10;
+
+
     [Header("Player Anchor")]
     public Vector2Int playerAnchorCenter = new Vector2Int(0, -17);
     public int playerAnchorRadius = 5;
@@ -37,7 +42,7 @@ public class SpireGenerator : MonoBehaviour
 
     [Header("Distance Bias Target (hex steps)")]
     public int biasMin = 3;   // target at difficulty=0
-    public int biasMax = 10;  // target at difficulty=1
+    public int biasMax = 10;  // target at difficulty=1   
 
     // difficulty-driven knobs
     float neutralAttractionLen;
@@ -355,29 +360,40 @@ public class SpireGenerator : MonoBehaviour
 
         var spire = Instantiate(spirePrefab, cell.transform.position, Quaternion.identity);
 
-        // Layer and name as provided; adjust if needed.
-        if (color == Color.white)
+        var sc = spire.GetComponent<SpireConstruct>();
+        if (sc != null)
         {
-            spire.layer = LayerMask.NameToLayer("Neutral");
-            spire.name = $"Neutral_Spire_{cell.axial_coords.x}_{cell.axial_coords.y}";
-        }
-        else if (color == Color.blue)
-        {
-            spire.layer = LayerMask.NameToLayer("Ai");
-            spire.name = $"Ai_Spire_{cell.axial_coords.x}_{cell.axial_coords.y}";
+            // Set intended starting owner based on color hint
+            if (color == Color.white)
+            {
+                sc.startingOwner = SpireConstruct.OwnerType.Neutral;
+                spire.name = $"Neutral_Spire_{cell.axial_coords.x}_{cell.axial_coords.y}";
+                sc.initialGarrison = neutralSpireInitialGarrison;
+            }
+            else if (color == Color.blue)
+            {
+                sc.startingOwner = SpireConstruct.OwnerType.AI;
+                spire.name = $"Ai_Spire_{cell.axial_coords.x}_{cell.axial_coords.y}";
+                sc.initialGarrison = spireInitialGarrison;
+            }
+            else
+            {
+                sc.startingOwner = SpireConstruct.OwnerType.Player;
+                spire.name = $"Player_Spire_{cell.axial_coords.x}_{cell.axial_coords.y}";
+                sc.initialGarrison = spireInitialGarrison;
+            }
+
+            // Properly register on the cell to invoke OnPlacedOnGrid and visuals/layer setup
+            if (!cell.TryAddGridObject(sc))
+            {
+                // Fallback: place manually if something unusual blocks TryAdd
+                sc.OnPlacedOnGrid(cell);
+            }
         }
         else
         {
-            
-            spire.layer = LayerMask.NameToLayer("Player");
-            spire.name = $"Player_Spire_{cell.axial_coords.x}_{cell.axial_coords.y}";
+            Debug.LogError("Spire prefab missing SpireConstruct component.");
         }
-
-        var sc = spire.GetComponent<SpireConstruct>();
-        if (sc != null) sc.parentCell = cell;
-
-        foreach (var r in spire.GetComponentsInChildren<Renderer>())
-            r.material.color = color;
     }
 
     // ---------- Biased first pick near anchor (uses same distance bias, center=anchor) ----------
