@@ -1,105 +1,88 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Diagnostics;
 using UnityEngine;
 
 /// <summary>
-/// Simple Minimax-based AI that plans one action per AI turn to capture neutral spires.
-/// Objective: maximize AI neutral captures while anticipating one best player counter-move.
-///
-/// Constraints and simplifications:
-/// - Considers a single AI action per turn (one source->neutral capture attempt).
-/// - Ignores movement attrition; assumes units arrive intact for claim resolution.
-/// - Uses straight-line cell path via HexGrid.GetCellsAlongLine for execution.
-/// - Relies on SpireConstruct.CommandUnits to create/queue movement and TurnManager to resolve.
+/// Clean refactored AI MonoBehaviour: owns tunable settings and Unity integration.
+/// Core search/simulation lives in static MinimaxAlgorithm for testability.
 /// </summary>
 public class MinimaxAI : MonoBehaviour
 {
+    [System.Serializable]
+    public class Settings
+    {
+        [Header("AI Search")]
+        [Tooltip("How many moves deep to search (e.g., 3 = AI, Player, AI)")]
+        [Range(1, 7)] public int SearchDepth = 3;
+
+        [Tooltip("Max number of moves to consider at each step (for performance). Note: Send amount is fixed by UiMgr.generateCountPerCommand")]
+        [Range(4, 40)] public int GlobalMoveCap = 20;
+
+        [Tooltip("Should the AI consider reinforcing its own spires?")]
+        public bool AllowReinforce = true;
+
+        [Header("AI Heuristic Weights (For Move Ordering)")]
+        [Tooltip("Weight for reinforcing. Score = (new_units * k_self)")]
+        [Min(1)] public int k_self = 1;
+
+        [Tooltip("Weight for capturing. Score = (remaining_units * k_attack)")]
+        [Min(1)] public int k_attack = 10;
+
+        [Header("AI Evaluation Weights (For Final Board Score)")]
+        [Tooltip("The value of owning one more spire than the opponent.")]
+        [Min(1)] public int SpireOwnershipWeight = 100;
+
+        [Tooltip("Weight for having one more unit (Reserve) than the opponent.")]
+        [Min(0)] public int UnitWeight = 1;
+
+        [Header("Strategic Expansion Weights")]
+        [Tooltip("Weight for expansion potential (higher = more aggressive expansion)")]
+        [Min(0)] public int ExpansionWeight = 150;
+
+        [Tooltip("Weight for territorial control (distance advantage to neutral spires)")]
+        [Min(0)] public int TerritorialControlWeight = 50;
+
+        [Tooltip("Weight for strategic positioning (center control)")]
+        [Min(0)] public int PositionalWeight = 30;
+    }
+
+    public Settings AISettings = new Settings();
     public static MinimaxAI inst;
     public bool IsBusy { get; private set; } = false;
 
-    // Fixed-send and flat travel loss constants per constraints
-    private static int SEND_CAP = 10;
-
-    [Header("AI Settings")]
-    [Tooltip("Maximum search depth in plies (AI move + Player move = 5 plies). Currently supports 1 to 5.")]
-    [Range(1, 5)] public int searchDepth = 2;
-
-    
-
-    [Header("Generation (like UiMgr)")]
-    [Tooltip("If true, AI will auto-generate units at the chosen source spire before sending, to meet the needed send count in the same turn.")]
-    public bool autoGenerateOnCommand = true;
-    [Tooltip("Units to generate when issuing a command if autoGenerateOnCommand is true. If 0, will generate exactly what is needed.")]
-    public int generateCountPerCommand = 10;
-
-    [Header("Minimax Targeting & Costs")]
-    [Tooltip("If true, consider attacking player-owned spires in addition to neutral spires.")]
-    public bool considerPlayerTargets = true;
-
-    [Tooltip("If true, consider reinforcing our own spires as valid targets.")]
-    public bool considerReinforcementTargets = true;
-
-    [Header("Reinforcement Heuristic")]
-    [Tooltip("Extra weight to prioritize increasing remaining garrison (reserve) on owned spires.")]
-    [Min(0)] public int reserveWeight = 3;
-
-    [Tooltip("Only consider reinforcing own spires whose remaining reserve is below this threshold. Set 0 to allow all.")]
-    [Min(0)] public int reinforceReserveThreshold = 25;
-
-    [Tooltip("In simulation, fraction of arriving reinforcements that convert into reserve (remainingGarrison) at the destination spire.")]
-    [Range(0f, 1f)] public float reinforcementToReserveRatio = 1f;
-
-    [Header("Scoring Weights")]
-    [Tooltip("Weight for each AI-owned spire vs a player-owned spire. Higher pushes the AI to prioritize captures.")]
-    [Min(1)] public int spireOwnershipWeight = 100;
-
-    [Tooltip("Weight per point of AI claim progress advantage on non-owned spires.")]
-    [Min(0)] public int claimProgressWeight = 5;
-
-    [Tooltip("Weight per 10 units of leftover AI units (garrison + reserve) to slightly prefer efficient captures.")]
-    [Min(0)] public int leftoverUnitsWeight = 1;
-
-    [Header("Search Controls")]
-    [Tooltip("Millisecond budget per AI turn for search. Uses iterative deepening and returns best-so-far on timeout.")]
-    [Range(5, 200)] public int aiMsBudgetPerTurn = 5000;
-
-    [Tooltip("Enable iterative deepening (always recommended with time budgets).")]
-    public bool useIterativeDeepening = true;
-
-    [Tooltip("Per source: number of nearest targets to keep before search.")]
-    [Range(1, 6)] public int perSourceTopK = 3;
-
-    [Tooltip("Global cap on ordered moves searched per ply.")]
-    [Range(4, 40)] public int globalMoveCap = 20;
-
-    // Cached references and utilities
     private HexGrid cachedGrid;
-
-    // Distance cache (instanceID pair -> length)
-    private readonly Dictionary<(int fromId, int toId), int> distanceCache = new Dictionary<(int, int), int>();
-    private readonly Dictionary<(int fromId, int toId), int> lastMoveTurn = new Dictionary<(int, int), int>();
-    private int aiTurnCounter = 0;
+    private readonly Dictionary<(int, int), int> distanceCache = new Dictionary<(int, int), int>();
+    
+    // Loop prevention: track recent moves to avoid repetition
+    private readonly List<(SpireConstruct from, SpireConstruct to)> recentMoves = new List<(SpireConstruct, SpireConstruct)>();
+    private const int MAX_MOVE_HISTORY = 5;
 
     private void Awake()
     {
-        inst = this;
+    inst = this;
         cachedGrid = FindObjectOfType<HexGrid>();
     }
-    
+
     /// <summary>
     /// Entry point invoked by TurnManager during AiPlanning.
-    /// Chooses and issues at most one command for AI this turn.
     /// </summary>
     public void PlanAndQueueAIMoves()
     {
-        
-
-        if (!IsBusy) StartCoroutine(PlanAndQueueAIMovesMinimaxCoroutine());
+        if (IsBusy) return;
+        StartCoroutine(PlanAndQueueAIMovesCoroutine());
     }
 
-    private System.Collections.IEnumerator PlanAndQueueAIMovesMinimaxCoroutine()
+    /// <summary>
+    /// Reset AI state for a new turn (called by TurnManager)
+    /// </summary>
+    public void ResetForNewTurn()
+    {
+        // Clear move history when starting a fresh turn cycle
+        recentMoves.Clear();
+    }
+
+    private System.Collections.IEnumerator PlanAndQueueAIMovesCoroutine()
     {
         IsBusy = true;
         var grid = cachedGrid != null ? cachedGrid : FindObjectOfType<HexGrid>();
@@ -111,178 +94,142 @@ public class MinimaxAI : MonoBehaviour
         int aiTeam = TurnManager.inst != null ? TurnManager.inst.aiTeamId : 1;
         int playerTeam = TurnManager.inst != null ? TurnManager.inst.playerTeamId : 0;
 
-    // New AI turn
-        aiTurnCounter++;
+        var rootState = AIState.Snapshot(allSpires);
 
-        var baseState = Snapshot(allSpires);
+        AIMove bestMove = MinimaxAlgorithm.FindBestMove(
+            rootState,
+            aiTeam,
+            playerTeam,
+            AISettings.SearchDepth,
+            AISettings,
+            GetCachedDistance);
 
-    // Single-pass alpha-beta search for best move from root
-    AIAction best = SearchBest(baseState, aiTeam, playerTeam);
-
-        if (best != null)
+        // Loop prevention: check if this move was recently made
+        if (bestMove != null && IsRepeatedMove(bestMove))
         {
-            // Remember chosen move for tabu
-            RememberMove(best, aiTurnCounter);
+            Debug.LogWarning("[MinimaxAI] Detected repeated move, finding alternative...");
+            bestMove = FindAlternativeMove(rootState, aiTeam, playerTeam, bestMove);
+        }
+
+        if (bestMove != null)
+        {
+            // Track this move to prevent loops
+            TrackMove(bestMove);
+            
             bool finished = false;
-            ExecuteWithPathfinder(best, () => { finished = true; });
-            // Short settle wait with guard to avoid infinite stall
+            ExecuteWithPathfinder(bestMove, () => { finished = true; });
             int guard = 0; int guardMax = 240;
             while (!finished && guard < guardMax) { guard++; yield return null; }
         }
-        IsBusy = false;
-        yield break;
-    }
-
-    private List<AIAction> BuildCandidateActions(SimState state, int team, HexGrid grid)
-    {
-        var list = new List<AIAction>();
-
-        int enemy = (TurnManager.inst != null && team == TurnManager.inst.aiTeamId)
-            ? TurnManager.inst.playerTeamId : (TurnManager.inst?.aiTeamId ?? 1);
-
-        foreach (var from in state.Spires.Where(s => s.team == team && s.LiveRef != null))
-        {
-            int available = from.garrison + (autoGenerateOnCommand ? from.reserve : 0);
-            int send = Math.Min(SEND_CAP, Math.Max(0, available));
-            
-            var potentialTargets = state.Spires.Where(s => s.LiveRef != null && s != from);
-            if (!considerReinforcementTargets) potentialTargets = potentialTargets.Where(s => s.team != team);
-            if (!considerPlayerTargets) potentialTargets = potentialTargets.Where(s => s.team == (int)SpireConstruct.OwnerType.Neutral || s.team == team);
-
-            var targetActions = new List<AIAction>();
-            foreach (var to in potentialTargets)
-            {
-                int estimatedDistance = GetCachedDistance(from.LiveRef, to.LiveRef);
-                int arriving = Math.Max(0, send - estimatedDistance);
-                if (arriving <= 0) continue; // cannot land anything
-
-                // Skip illegal same-team if reinforcement disabled
-                if (to.team == team)
-                {
-                    if (!considerReinforcementTargets) continue;
-                    bool low = reinforceReserveThreshold > 0 && to.reserve < reinforceReserveThreshold;
-                    bool threatened = IsThreatened(state, to.LiveRef, team, enemy);
-                    if (!low && !threatened) continue; // don't reinforce unnecessarily
-                }
-
-                var act = new AIAction
-                {
-                    From = from.LiveRef,
-                    To = to.LiveRef,
-                    SendCount = send,
-                    EstimatedDistance = GetCachedDistance(from.LiveRef, to.LiveRef)
-                };
-                act.Heuristic = MoveHeuristic(state, act, team, enemy);
-                targetActions.Add(act);
-            }
-
-            // Per source: sort by heuristic descending and take top K
-            targetActions = targetActions.OrderByDescending(a => a.Heuristic).Take(perSourceTopK).ToList();
-            list.AddRange(targetActions);
-        }
-
-        // No need for additional global ordering here; will be ordered in OrderedMoves
-        return list;
-    }
-
-    private int MoveHeuristic(SimState state, AIAction action, int team, int enemy)
-    {
-        if (action == null || action.To == null || action.From == null) return int.MinValue;
-
-        var to = state.Spires.FirstOrDefault(x => x.LiveRef == action.To);
-        if (to == null) return int.MinValue;
-        var from = state.Spires.FirstOrDefault(x => x.LiveRef == action.From);
-        if (from == null) return int.MinValue;
-
-        int dist = action.EstimatedDistance;
-        int heuristic = 0;
-
-        if (to.team == team)
-        {
-            // Reinforcement heuristic: prefer low reserve, threatened, closer
-            heuristic = 1000 - to.reserve;
-            if (IsThreatened(state, action.To, team, enemy)) heuristic += 500;
-            heuristic -= dist * 2; // Penalize distance more for reinforcements
-            // Penalize draining the source spire
-            heuristic -= from.reserve < action.SendCount ? 200 : 0;
-        }
         else
         {
-            // Capture heuristic: prefer low needed, finishers, blockers, closer
-            int cur = team == TurnManager.inst?.aiTeamId ? to.claimAi : to.claimPlayer;
-            int needed = Math.Max(0, to.cost - cur);
-            heuristic = 1000 - needed;
-            int steps = Mathf.Max(0, action.EstimatedDistance);
-            int arriving = Math.Max(0, action.SendCount - steps);
-            if (needed > 0 && arriving >= needed) heuristic += 10000; // Finisher bonus
-            if (BlocksEnemyFinisher(state, action, team)) heuristic += 5000; // Blocker bonus
-            heuristic -= steps; // Prefer closer targets
-
-            // Prefer attacking targets with low reserves and leaving source with high reserves
-            heuristic -= to.reserve;
-            heuristic -= from.reserve < action.SendCount ? 100 : 0;
+            Debug.Log("[MinimaxAI] No valid move found (may have no units or all moves blocked)");
         }
 
-        return heuristic;
+        IsBusy = false;
     }
 
-    private bool IsFinisher(SimState s, AIAction m, int moverTeam)
+    /// <summary>
+    /// Check if a move has been made recently (loop detection)
+    /// </summary>
+    private bool IsRepeatedMove(AIMove move)
     {
-        if (m == null || m.To == null || m.From == null) return false;
-        var to = s.Spires.FirstOrDefault(x => x.LiveRef == m.To);
-        if (to == null || to.team == moverTeam) return false;
-        int cur = moverTeam == (TurnManager.inst?.aiTeamId ?? 1) ? to.claimAi : to.claimPlayer;
-        int needed = Math.Max(0, to.cost - cur);
-        var from = s.Spires.FirstOrDefault(x => x.LiveRef == m.From);
-        if (from == null) return false;
-        int steps = GetCachedDistance(from.LiveRef, to.LiveRef);
-        int arriving = Math.Max(0, Math.Min(SEND_CAP,
-            from.garrison + (autoGenerateOnCommand ? from.reserve : 0)) - steps);
-        return arriving >= needed && needed > 0;
+        if (move == null || move.From == null || move.To == null) return false;
+        
+        // Check if this exact move appears in recent history
+        int repeatCount = 0;
+        foreach (var (from, to) in recentMoves)
+        {
+            if (from == move.From && to == move.To)
+            {
+                repeatCount++;
+                if (repeatCount >= 2) // Allow once, block if repeated twice
+                    return true;
+            }
+        }
+        return false;
     }
 
-    private bool BlocksEnemyFinisher(SimState s, AIAction m, int moverTeam)
+    /// <summary>
+    /// Track a move in history for loop prevention
+    /// </summary>
+    private void TrackMove(AIMove move)
     {
-        if (m == null || m.To == null) return false;
-        int enemy = (TurnManager.inst != null && moverTeam == TurnManager.inst.aiTeamId)
-            ? TurnManager.inst.playerTeamId : (TurnManager.inst?.aiTeamId ?? 1);
-
-        // If enemy could finish this spire next ply, count as a block
-        var to = s.Spires.FirstOrDefault(x => x.LiveRef == m.To);
-        if (to == null) return false;
-        int enemyCur = enemy == (TurnManager.inst?.aiTeamId ?? 1) ? to.claimAi : to.claimPlayer;
-        int needed = Math.Max(0, to.cost - enemyCur);
-        int steps = GetCachedDistance(m.From, m.To);
-        int enemyArriving = Math.Max(0, Math.Min(SEND_CAP, EnemyAvailableAt(s, to, enemy)) - steps);
-        return enemyArriving >= needed && needed > 0 && to.team != moverTeam;
+        if (move == null || move.From == null || move.To == null) return;
+        
+        recentMoves.Add((move.From, move.To));
+        
+        // Keep only recent moves
+        while (recentMoves.Count > MAX_MOVE_HISTORY)
+        {
+            recentMoves.RemoveAt(0);
+        }
     }
 
-    private int EnemyAvailableAt(SimState s, SpireSnapshot target, int enemy)
+    /// <summary>
+    /// Find an alternative move when the best move would create a loop
+    /// </summary>
+    private AIMove FindAlternativeMove(AIState rootState, int aiTeam, int playerTeam, AIMove blockedMove)
     {
-        // crude: pick enemy source with max available; still O(N)
-        int best = 0;
-        foreach (var e in s.Spires.Where(x => x.team == enemy))
-            best = Math.Max(best, e.garrison + (autoGenerateOnCommand ? e.reserve : 0));
-        return best;
+        var allMoves = MinimaxAlgorithm.GetAllValidMoves(rootState, aiTeam, AISettings, GetCachedDistance, MinimaxAlgorithm.GetSendAmount());
+        
+        // Filter out the blocked move and other recent moves
+        var alternatives = allMoves.Where(m => 
+            !IsRepeatedMove(m) && 
+            !(m.From == blockedMove.From && m.To == blockedMove.To)
+        ).ToList();
+
+        if (alternatives.Count == 0)
+        {
+            Debug.LogWarning("[MinimaxAI] No alternative moves available, clearing history and retrying original move");
+            recentMoves.Clear(); // Reset to break deadlock
+            return blockedMove;
+        }
+
+        // Evaluate alternatives and pick the best one
+        int bestScore = int.MinValue;
+        AIMove bestAlternative = alternatives[0];
+        
+        foreach (var m in alternatives.Take(10)) // Limit evaluation for performance
+        {
+            var s1 = rootState.SimulateAction(m, aiTeam, MinimaxAlgorithm.GetSendAmount());
+            int sc = MinimaxAlgorithm.QuickEvaluate(s1, aiTeam, playerTeam, AISettings, GetCachedDistance);
+            if (sc > bestScore)
+            {
+                bestScore = sc;
+                bestAlternative = m;
+            }
+        }
+
+        Debug.Log($"[MinimaxAI] Selected alternative move from {bestAlternative.From.name} to {bestAlternative.To.name}");
+        return bestAlternative;
     }
 
-    private void ExecuteWithPathfinder(AIAction action, System.Action onDone = null)
+    private void ExecuteWithPathfinder(AIMove action, System.Action onDone = null)
     {
         if (action == null || UiMgr.inst == null) { onDone?.Invoke(); return; }
         if (action.From == null || action.To == null) { onDone?.Invoke(); return; }
         if (action.From.parentCell == null || action.To.parentCell == null) { onDone?.Invoke(); return; }
 
-        // Sync UiMgr generation behavior with AI settings
-        UiMgr.inst.alwaysGenerateOnCommand = autoGenerateOnCommand;
+        // Compute desired send amount (respect hardcoded cap, don't exceed reserve)
+        int dist = GetCachedDistance(action.From, action.To);
+        int defenders = 0;
+        var toSpire = action.To;
+        if (toSpire != null)
+        {
+            // Total defenders = garrison + reserve (consistent with UI logic)
+            defenders = (toSpire.GetTotalGarrisonCount()) + toSpire.remainingGarrison;
+        }
+        // Configure UiMgr for AI command (allow execution during AI phase)
+        // Use the hardcoded generateCountPerCommand from UiMgr - don't override it
+        UiMgr.inst.allowCommandWhenPlayerInputDisabled = true;
+        UiMgr.inst.sendOverrideForNextCommand = null; // Don't override, use UiMgr default
+        UiMgr.inst.alwaysGenerateOnCommand = true;
 
-        // Set UiMgr context and trigger its async path request -> OnPathFound -> CommandUnits
         UiMgr.inst.targetSpire = action.To;
         UiMgr.inst.selectedSpire = action.From;
 
-        // Start a short watcher that completes once AI units are queued (or after a timeout)
         StartCoroutine(WaitForAiQueueThenCallback(onDone));
-
-        // Kick off selection + pathfinding
         UiMgr.inst.SelectCell(action.From.parentCell);
         UiMgr.inst.SelectTargetCell(action.To.parentCell);
     }
@@ -291,399 +238,474 @@ public class MinimaxAI : MonoBehaviour
     {
         int aiTeam = TurnManager.inst != null ? TurnManager.inst.aiTeamId : 1;
         int guard = 0;
-        // Wait until at least one AI unit is in Traversing state (queued) or timeout
         while (guard < 180)
         {
             var anyQueued = FindObjectsOfType<Units>()
                 .Any(u => u != null && u.teamID == aiTeam && u.state == Units.UnitState.Traversing);
             if (anyQueued) break;
-            guard++;
-            yield return null;
+            guard++; yield return null;
         }
         onDone?.Invoke();
     }
 
-    // =====================
-    // Minimax simulation
-    // =====================
-
-    private class SpireSnapshot
+    private int GetCachedDistance(SpireConstruct a, SpireConstruct b)
     {
-        public int team;
-        public int garrison;
-        public int reserve;
-        public int cost;
-        public int claimAi;
-        public int claimPlayer;
-        public Vector2Int axial;
-        public SpireConstruct LiveRef; // for mapping back to scene if needed
+        if (a == null || b == null || a.parentCell == null || b.parentCell == null) return 999;
+        var key = (a.GetInstanceID(), b.GetInstanceID());
+        if (distanceCache.TryGetValue(key, out var d)) return d;
+        var grid = cachedGrid != null ? cachedGrid : FindObjectOfType<HexGrid>();
+        int dist = grid != null ? grid.GetDistance(a.parentCell, b.parentCell) : 999;
+        distanceCache[key] = dist;
+        return dist;
+    }
+}
+
+// ================= Helper Data Structures =================
+public class AIMove
+{
+    public SpireConstruct From;
+    public SpireConstruct To;
+    public int EstimatedDistance;
+    public int HeuristicScore; // for ordering
+}
+
+public class AIState
+{
+    public class SpireSnapshot
+    {
+        public int TeamId;
+        public int Garrison; // units currently in garrison
+        public int Reserve;  // units available for spawning
+        public SpireConstruct LiveRef;
     }
 
-    private class SimState
-    {
-        public List<SpireSnapshot> Spires = new List<SpireSnapshot>();
-    }
+    public List<SpireSnapshot> Spires;
 
-    private class AIAction
+    public static AIState Snapshot(SpireConstruct[] all)
     {
-        public SpireConstruct From;
-        public SpireConstruct To;
-        public int SendCount;
-        public int EstimatedDistance;
-        public int Heuristic; // used for move ordering only
-    }
-
-    private SimState Snapshot(SpireConstruct[] spires)
-    {
-        int aiTeam = TurnManager.inst != null ? TurnManager.inst.aiTeamId : 1;
-        int playerTeam = TurnManager.inst != null ? TurnManager.inst.playerTeamId : 0;
-
-        var st = new SimState();
-        foreach (var s in spires)
+        var st = new AIState { Spires = new List<SpireSnapshot>() };
+        foreach (var s in all)
         {
             if (s == null) continue;
-            int aiClaim = 0;
-            int playerClaim = 0;
-            var prog = s.GetClaimProgress();
-            if (prog != null)
-            {
-                prog.TryGetValue(aiTeam, out aiClaim);
-                prog.TryGetValue(playerTeam, out playerClaim);
-            }
             st.Spires.Add(new SpireSnapshot
             {
-                team = s.teamID,
-                garrison = s.GetTotalGarrisonCount(),
-                reserve = s.remainingGarrison,
-                cost = s.costToClaim,
-                claimAi = aiClaim,
-                claimPlayer = playerClaim,
-                axial = s.parentCell != null ? s.parentCell.axial_coords : Vector2Int.zero,
+                TeamId = s.teamID,
+                Garrison = s.GetTotalGarrisonCount(),
+                Reserve = s.remainingGarrison,
                 LiveRef = s
             });
         }
         return st;
     }
 
-    private SimState Clone(SimState s)
+    public AIState Clone()
     {
-        var copy = new SimState();
-        foreach (var sp in s.Spires)
+        var copy = new AIState { Spires = new List<SpireSnapshot>() };
+        foreach (var s in Spires)
         {
             copy.Spires.Add(new SpireSnapshot
             {
-                team = sp.team,
-                garrison = sp.garrison,
-                reserve = sp.reserve,
-                cost = sp.cost,
-                claimAi = sp.claimAi,
-                claimPlayer = sp.claimPlayer,
-                axial = sp.axial,
-                LiveRef = sp.LiveRef
+                TeamId = s.TeamId,
+                Garrison = s.Garrison,
+                Reserve = s.Reserve,
+                LiveRef = s.LiveRef
             });
         }
         return copy;
     }
 
-    private SimState SimulateAction(SimState current, AIAction a, int moverTeam, int aiTeam, int playerTeam)
+    public AIState SimulateAction(AIMove move, int moverTeam, int maxSend)
     {
-        // Apply flat-loss, fixed-send simulation
-        var s = Clone(current);
-        var from = s.Spires.FirstOrDefault(x => x.LiveRef == a.From);
-        var to   = s.Spires.FirstOrDefault(x => x.LiveRef == a.To);
-        if (from == null || to == null) return s;
+        var next = Clone();
+        var from = next.Spires.FirstOrDefault(x => x.LiveRef == move.From);
+        var to = next.Spires.FirstOrDefault(x => x.LiveRef == move.To);
+        if (from == null || to == null) return next;
 
-        // Determine availability
-        int available = from.garrison + (autoGenerateOnCommand ? from.reserve : 0);
-        if (available <= 0) return s;
+        // Mirror UiMgr flow: spawn from Reserve up to cap, then send that amount
+        int toSpawn = Mathf.Min(maxSend, Mathf.Max(0, from.Reserve));
+        int send = toSpawn;
+        if (send <= 0) return next;
 
-        int send = Math.Min(SEND_CAP, available);
+        // Apply spawning and sending
+        from.Reserve -= toSpawn;
+        from.Garrison += toSpawn;
+        from.Garrison -= send;
 
-        // Consume from reserve first if auto-generate enabled, else from garrison
-        int useReserve = 0, useGarrison = 0;
-        if (autoGenerateOnCommand)
+        // Travel attrition: arrival = send - distance
+        int arriving = send - move.EstimatedDistance;
+        if (arriving <= 0) return next;
+
+        // Combat against defenders (only Reserve is updated during simulation)
+        int R = to.Reserve;
+        if (to.TeamId == moverTeam)
         {
-            useReserve  = Math.Min(from.reserve, send);
-            useGarrison = send - useReserve;
-            from.reserve  -= useReserve;
-            from.garrison -= useGarrison;
+            // Reinforce: add arriving to reserve
+            to.Reserve += arriving;
         }
         else
         {
-            useGarrison = Math.Min(from.garrison, send);
-            from.garrison -= useGarrison;
+            int combat = arriving - R;
+            if (combat > 0)
+            {
+                // Capture: victor's remainder becomes reserve, defender wiped
+                to.TeamId = moverTeam;
+                to.Reserve = combat;
+            }
+            else
+            {
+                // Defender holds; leftover stays as reserve
+                to.Reserve = R - arriving;
+            }
         }
+        return next;
+    }
+}
 
-        int steps = GetCachedDistance(a.From, a.To);
-        int arriving = Math.Max(0, send - steps);
-        if (arriving <= 0) return s;
-
-        if (to.team == moverTeam)
-        {
-            // Reinforcement
-            to.garrison += arriving;
-            if (reinforcementToReserveRatio > 0f)
-                to.reserve += Mathf.FloorToInt(arriving * reinforcementToReserveRatio);
-            return s;
-        }
-
-        // Claim application with fixed arriving
-        bool moverIsAi = moverTeam == aiTeam;
-        int cur = moverIsAi ? to.claimAi : to.claimPlayer;
-        int needed = Math.Max(0, to.cost - cur);
-
-        if (arriving >= needed && needed > 0)
-        {
-            // Capture
-            to.team = moverTeam;
-            to.claimAi = 0; to.claimPlayer = 0;
-            int leftover = arriving - needed;
-            to.garrison += leftover;
-        }
-        else
-        {
-            if (moverIsAi) to.claimAi = cur + arriving;
-            else           to.claimPlayer = cur + arriving;
-        }
-        return s;
+public static class MinimaxAlgorithm
+{
+    // Use the hardcoded value from UiMgr.generateCountPerCommand (default: 10)
+    // This should match the value in UiMgr to ensure simulation accuracy
+    public static int GetSendAmount()
+    {
+        return (UiMgr.inst != null) ? UiMgr.inst.generateCountPerCommand : 10;
     }
 
-    private int Evaluate(SimState state, int aiTeam, int playerTeam)
+    public static AIMove FindBestMove(AIState root, int aiTeam, int playerTeam, int depth,
+    MinimaxAI.Settings settings,
+        Func<SpireConstruct, SpireConstruct, int> getDistance)
     {
-        // 1) Primary objective: maximize number of AI-owned spires, minimize player-owned
-        int aiOwned = 0;
-        int playerOwned = 0;
-        foreach (var s in state.Spires)
-        {
-            if (s.team == aiTeam) aiOwned++;
-            else if (s.team == playerTeam) playerOwned++;
-        }
-
-        int score = spireOwnershipWeight * (aiOwned - playerOwned);
-
-        // 2) Secondary: push toward imminent captures by valuing AI claim progress on non-AI spires,
-        //    and slightly penalize opponent claim progress on non-player spires.
-        int claimDelta = 0;
-        foreach (var s in state.Spires)
-        {
-            if (s.team != aiTeam)
-            {
-                // Cap claims by cost just in case
-                int aiClaim = Mathf.Clamp(s.claimAi, 0, s.cost);
-                int oppClaim = Mathf.Clamp(s.claimPlayer, 0, s.cost);
-
-                // Only value progress on neutral or enemy spires; ignore on our own (always zero anyway)
-                claimDelta += (aiClaim - oppClaim);
-            }
-        }
-        score += claimDelta * claimProgressWeight;
-
-        // 3) Tertiary: prefer keeping leftover units (garrison + reserve) after captures, lightly weighted.
-        //    Use a coarse scale (per 10 units) to avoid overshadowing capture choices.
-        int aiLeftoverUnits = 0;
-        int playerLeftoverUnits = 0;
-        foreach (var s in state.Spires)
-        {
-            if (s.team == aiTeam)
-            {
-                // Clamp to avoid runaway scoring on very large reserves
-                aiLeftoverUnits += Mathf.Min(s.garrison, 100);
-                aiLeftoverUnits += Mathf.Min(s.reserve, 200);
-            }
-            else if (s.team == playerTeam)
-            {
-                playerLeftoverUnits += Mathf.Min(s.garrison, 100);
-                playerLeftoverUnits += Mathf.Min(s.reserve, 200);
-            }
-        }
-        score += (aiLeftoverUnits / 10) * leftoverUnitsWeight;
-        score -= (playerLeftoverUnits / 10) * leftoverUnitsWeight;
-
-        // Near-term finisher terms with fixed-send
-        score += 30 * CountOurFinishersNextPly(state, aiTeam, playerTeam);
-        score -= 30 * CountEnemyFinishersNextPly(state, aiTeam, playerTeam);
-
-        // Border reserve coverage bonus
-        score += reserveWeight * CountCoveredFrontier(state, aiTeam, playerTeam);
-
-        return score;
-    }
-
-    // =====================
-    // Alpha-Beta + Iterative Deepening + Quiescence
-    // =====================
-
-    private AIAction SearchBest(SimState root, int aiTeam, int playerTeam)
-    {
-        AIAction bestMove = null;
-        int bestScore = int.MinValue + 1;
-
-        int depth = Mathf.Max(1, searchDepth);
-        int alpha = int.MinValue + 1;
-        int beta = int.MaxValue - 1;
-
-        var moves = OrderedMoves(root, aiTeam, playerTeam);
-        // Root-level tabu filter: avoid repeating the same (from->to) for 2 turns unless it finishes now
-        moves = moves.Where(m => !IsTabu(m, aiTurnCounter) || IsFinisher(root, m, aiTeam)).ToList();
-
+        int bestScore = int.MinValue;
+        AIMove bestMove = null;
+        int sendAmount = GetSendAmount();
+        var moves = GetValidMoves(root, aiTeam, settings, getDistance, sendAmount);
         foreach (var m in moves)
         {
-            var s1 = SimulateAction(root, m, aiTeam, aiTeam, playerTeam);
-            int sc = -Negamax(s1, depth - 1, -beta, -alpha, playerTeam, aiTeam, playerTeam);
+            var s1 = root.SimulateAction(m, aiTeam, sendAmount);
+            int sc = -Negamax(s1, depth - 1, int.MinValue + 1, int.MaxValue, playerTeam, aiTeam, settings, getDistance, sendAmount);
             if (sc > bestScore) { bestScore = sc; bestMove = m; }
-            if (sc > alpha) alpha = sc;
         }
         return bestMove;
     }
 
-    private bool IsTabu(AIAction m, int currentTurn)
+    private static int Negamax(AIState state, int depth, int alpha, int beta, int side,
+    int aiTeam, MinimaxAI.Settings settings,
+        Func<SpireConstruct, SpireConstruct, int> getDistance, int sendAmount)
     {
-        if (m == null || m.From == null || m.To == null) return false;
-        var key = (m.From.GetInstanceID(), m.To.GetInstanceID());
-        if (lastMoveTurn.TryGetValue(key, out var last))
+        int playerTeam = (aiTeam == 0) ? 1 : 0; // simplistic opposing id assumption
+        
+        // Terminal node or depth limit reached
+        if (depth <= 0)
         {
-            // Tabu if issued within last 2 turns
-            return currentTurn - last <= 2;
+            int eval = EvaluateComplete(state, aiTeam, playerTeam, settings, getDistance);
+            return (side == aiTeam) ? eval : -eval;
         }
-        return false;
-    }
+        
+        var moves = GetValidMoves(state, side, settings, getDistance, sendAmount);
+        
+        // Terminal state check (no valid moves)
+        if (moves.Count == 0)
+        {
+            int eval = EvaluateComplete(state, aiTeam, playerTeam, settings, getDistance);
+            return (side == aiTeam) ? eval : -eval;
+        }
 
-    private void RememberMove(AIAction m, int currentTurn)
-    {
-        if (m == null || m.From == null || m.To == null) return;
-        var key = (m.From.GetInstanceID(), m.To.GetInstanceID());
-        lastMoveTurn[key] = currentTurn;
-    }
-
-    private int Negamax(SimState s, int depth, int alpha, int beta, int side, int aiTeam, int playerTeam)
-    {
-        if (depth <= 0) return Evaluate(s, aiTeam, playerTeam);
-
-        int best = int.MinValue + 1;
-        var moves = OrderedMoves(s, side, side == aiTeam ? playerTeam : aiTeam);
+        int best = int.MinValue + 1; // Avoid overflow
+        
+        // Complete minimax with alpha-beta pruning
         foreach (var m in moves)
         {
-            var s2 = SimulateAction(s, m, side, aiTeam, playerTeam);
-            int val = -Negamax(s2, depth - 1, -beta, -alpha, (side == aiTeam) ? playerTeam : aiTeam, aiTeam, playerTeam);
-            if (val > best) best = val;
-            if (val > alpha) alpha = val;
-            if (alpha >= beta) break; // prune
+            var s2 = state.SimulateAction(m, side, sendAmount);
+            int opp = (side == aiTeam) ? playerTeam : aiTeam;
+            
+            // Recursive negamax call with alpha-beta pruning
+            int val = -Negamax(s2, depth - 1, -beta, -alpha, opp, aiTeam, settings, getDistance, sendAmount);
+            
+            // Update best score
+            if (val > best) 
+                best = val;
+            
+            // Alpha-beta pruning: update alpha
+            if (val > alpha) 
+                alpha = val;
+            
+            // Beta cutoff: prune remaining branches
+            if (alpha >= beta) 
+                break;
         }
+        
         return best;
     }
 
-    private List<AIAction> OrderedMoves(SimState s, int side, int opp)
+    /// <summary>
+    /// Get all valid moves (public version for loop prevention)
+    /// </summary>
+    public static List<AIMove> GetAllValidMoves(AIState state, int team,
+        MinimaxAI.Settings settings,
+        Func<SpireConstruct, SpireConstruct, int> getDistance, int sendAmount)
     {
-        var grid = cachedGrid != null ? cachedGrid : FindObjectOfType<HexGrid>();
-        var moves = BuildCandidateActions(s, side, grid);
-        // Order by heuristic descending and cap globally
-        moves = moves.OrderByDescending(a => a.Heuristic).Take(globalMoveCap).ToList();
-        return moves;
+        return GetValidMoves(state, team, settings, getDistance, sendAmount);
     }
 
-    private bool IsThreatened(SimState s, SpireConstruct targetLive, int side, int opp)
+    private static List<AIMove> GetValidMoves(AIState state, int team,
+    MinimaxAI.Settings settings,
+        Func<SpireConstruct, SpireConstruct, int> getDistance, int sendAmount)
     {
-        if (targetLive == null) return false;
-        var snap = s.Spires.FirstOrDefault(x => x.LiveRef == targetLive);
-        if (snap == null) return false;
-        int neededByOpp = NeededToCapture(snap, opp);
-        if (neededByOpp <= 0) return false;
-        int oppArriving = MaxArrivingFromSideTo(s, snap, opp);
-        return oppArriving >= neededByOpp;
-    }
-
-
-    private int NeededToCapture(SpireSnapshot to, int side)
-    {
-        if (to.team == side) return 0;
-        int cur = side == (TurnManager.inst?.aiTeamId ?? 1) ? to.claimAi : to.claimPlayer;
-        return Mathf.Max(0, to.cost - cur);
-    }
-
-    private int MaxArrivingFromSideTo(SimState s, SpireSnapshot target, int side)
-    {
-        // With fixed-send and flat loss, target distance is irrelevant; compute best arrival capacity for side
-        int best = 0;
-        foreach (var src in s.Spires)
+        var moves = new List<AIMove>();
+        var sources = state.Spires.Where(s => s.TeamId == team);
+        var targets = state.Spires.Where(s => s.TeamId != team || settings.AllowReinforce);
+        foreach (var from in sources)
         {
-            if (src.team != side) continue;
-            int available = src.garrison + (autoGenerateOnCommand ? src.reserve : 0);
-            // Use a conservative step estimate when simulating: at least 1 step if different cells
-            int steps = (src.axial != target.axial) ? Mathf.Max(1, GetCachedDistance(src.LiveRef, target.LiveRef)) : 0;
-            int arriving = Math.Max(0, Math.Min(SEND_CAP, Math.Max(0, available)) - steps);
-            if (arriving > best) best = arriving;
-        }
-        return best;
-    }
-
-    private int CountEnemyFinishersNextPly(SimState s, int aiTeam, int playerTeam)
-    {
-        int count = 0;
-        foreach (var sp in s.Spires)
-        {
-            if (sp.team == playerTeam) continue; // already enemy-owned
-            int needed = NeededToCapture(sp, playerTeam);
-            if (needed <= 0) continue;
-            int arriving = MaxArrivingFromSideTo(s, sp, playerTeam);
-            if (arriving >= needed) count++;
-        }
-        return count;
-    }
-
-    private int CountOurFinishersNextPly(SimState s, int aiTeam, int playerTeam)
-    {
-        int count = 0;
-        foreach (var sp in s.Spires)
-        {
-            if (sp.team == aiTeam) continue;
-            int needed = NeededToCapture(sp, aiTeam);
-            if (needed <= 0) continue;
-            int arriving = MaxArrivingFromSideTo(s, sp, aiTeam);
-            if (arriving >= needed) count++;
-        }
-        return count;
-    }
-
-    private int CountCoveredFrontier(SimState s, int aiTeam, int playerTeam)
-    {
-        // Frontier = AI spire with neighbor that is neutral or enemy; reward if reserve > 0
-        var byAxial = s.Spires.ToDictionary(x => x.axial, x => x);
-        Vector2Int[] dirs = new[]
-        {
-            new Vector2Int(1,0), new Vector2Int(1,-1), new Vector2Int(0,-1),
-            new Vector2Int(-1,0), new Vector2Int(-1,1), new Vector2Int(0,1)
-        };
-        int covered = 0;
-        foreach (var sp in s.Spires)
-        {
-            if (sp.team != aiTeam) continue;
-            bool frontier = false;
-            foreach (var d in dirs)
+            // Only consider sources that can actually send something (based on Reserve)
+            // Use the hardcoded sendAmount from UiMgr
+            int send = Mathf.Min(sendAmount, Mathf.Max(0, from.Reserve));
+            if (send <= 0) continue;
+            foreach (var to in targets)
             {
-                var ax = sp.axial + d;
-                if (byAxial.TryGetValue(ax, out var nb))
+                if (from.LiveRef == to.LiveRef) continue;
+                int dist = getDistance(from.LiveRef, to.LiveRef);
+                int arriving = send - dist;
+                if (arriving <= 0) continue; // invalid
+                var mv = new AIMove { From = from.LiveRef, To = to.LiveRef, EstimatedDistance = dist };
+                mv.HeuristicScore = MoveHeuristic(to, arriving, team, settings);
+                moves.Add(mv);
+            }
+        }
+        return moves.OrderByDescending(m => m.HeuristicScore).Take(settings.GlobalMoveCap).ToList();
+    }
+
+    private static int MoveHeuristic(AIState.SpireSnapshot to, int arriving, int team,
+    MinimaxAI.Settings settings)
+    {
+        int R = to.Reserve; // Only Reserve is updated during simulation
+        if (to.TeamId == team)
+        {
+            int newRemaining = arriving + R;
+            return newRemaining * settings.k_self;
+        }
+        else
+        {
+            int newRemaining = arriving - R;
+            if (newRemaining > 0) return newRemaining * settings.k_attack; // capture potential
+            return newRemaining; // negative (loss/draw)
+        }
+    }
+
+    public static int Evaluate(AIState state, int aiTeam, int playerTeam, MinimaxAI.Settings settings)
+    {
+        int aiSpires = 0, playerSpires = 0, aiUnits = 0, playerUnits = 0;
+        foreach (var s in state.Spires)
+        {
+            if (s.TeamId == aiTeam) { aiSpires++; aiUnits += s.Reserve; }
+            else if (s.TeamId == playerTeam) { playerSpires++; playerUnits += s.Reserve; }
+        }
+        int score = 0;
+        score += (aiSpires - playerSpires) * settings.SpireOwnershipWeight;
+        score += (aiUnits - playerUnits) * settings.UnitWeight;
+        return score;
+    }
+
+    /// <summary>
+    /// Quick evaluation for alternative move selection (no deep search)
+    /// </summary>
+    public static int QuickEvaluate(AIState state, int aiTeam, int playerTeam,
+        MinimaxAI.Settings settings, Func<SpireConstruct, SpireConstruct, int> getDistance)
+    {
+        // Use simpler evaluation for speed when finding alternatives
+        return Evaluate(state, aiTeam, playerTeam, settings);
+    }
+
+    /// <summary>
+    /// Complete evaluation function with expansion and territorial control metrics
+    /// </summary>
+    public static int EvaluateComplete(AIState state, int aiTeam, int playerTeam, 
+        MinimaxAI.Settings settings, Func<SpireConstruct, SpireConstruct, int> getDistance)
+    {
+        int aiSpires = 0, playerSpires = 0, neutralSpires = 0;
+        int aiUnits = 0, playerUnits = 0;
+        
+        var aiOwnedSpires = new List<AIState.SpireSnapshot>();
+        var playerOwnedSpires = new List<AIState.SpireSnapshot>();
+        var neutrals = new List<AIState.SpireSnapshot>();
+        
+        // Categorize spires
+        foreach (var s in state.Spires)
+        {
+            if (s.TeamId == aiTeam) 
+            { 
+                aiSpires++; 
+                aiUnits += s.Reserve; 
+                aiOwnedSpires.Add(s);
+            }
+            else if (s.TeamId == playerTeam) 
+            { 
+                playerSpires++; 
+                playerUnits += s.Reserve; 
+                playerOwnedSpires.Add(s);
+            }
+            else
+            {
+                neutralSpires++;
+                neutrals.Add(s);
+            }
+        }
+        
+        int score = 0;
+        
+        // 1. Basic ownership and unit count (original metrics)
+        score += (aiSpires - playerSpires) * settings.SpireOwnershipWeight;
+        score += (aiUnits - playerUnits) * settings.UnitWeight;
+        
+        // 2. EXPANSION METRIC: Evaluate expansion potential (heavily weighted)
+        int aiExpansionPotential = CalculateExpansionPotential(aiOwnedSpires, neutrals, aiTeam, getDistance);
+        int playerExpansionPotential = CalculateExpansionPotential(playerOwnedSpires, neutrals, playerTeam, getDistance);
+        score += (aiExpansionPotential - playerExpansionPotential) * settings.ExpansionWeight;
+        
+        // 3. TERRITORIAL CONTROL: Distance advantage to neutral/enemy spires
+        int aiTerritorialControl = CalculateTerritorialControl(aiOwnedSpires, neutrals, playerOwnedSpires, getDistance);
+        int playerTerritorialControl = CalculateTerritorialControl(playerOwnedSpires, neutrals, aiOwnedSpires, getDistance);
+        score += (aiTerritorialControl - playerTerritorialControl) * settings.TerritorialControlWeight;
+        
+        // 4. POSITIONAL ADVANTAGE: Reward central positions and defensive clusters
+        int aiPositional = CalculatePositionalValue(aiOwnedSpires, state.Spires, getDistance);
+        int playerPositional = CalculatePositionalValue(playerOwnedSpires, state.Spires, getDistance);
+        score += (aiPositional - playerPositional) * settings.PositionalWeight;
+        
+        return score;
+    }
+
+    /// <summary>
+    /// Calculate expansion potential: how many spires can be captured with current forces
+    /// </summary>
+    private static int CalculateExpansionPotential(List<AIState.SpireSnapshot> ownedSpires, 
+        List<AIState.SpireSnapshot> targets, int team, Func<SpireConstruct, SpireConstruct, int> getDistance)
+    {
+        int potential = 0;
+        
+        foreach (var target in targets)
+        {
+            int targetDefense = target.Reserve; // Only Reserve is updated during simulation
+            int bestAttackValue = 0;
+            
+            // Find the best owned spire that could attack this target
+            foreach (var owned in ownedSpires)
+            {
+                int availableForces = owned.Reserve; // Units available for sending
+                int distance = getDistance(owned.LiveRef, target.LiveRef);
+                int arriving = availableForces - distance;
+                
+                if (arriving > targetDefense)
                 {
-                    if (nb.team != aiTeam) { frontier = true; break; }
+                    // Can capture this target
+                    int surplus = arriving - targetDefense;
+                    int attackValue = 100 + surplus; // Base value + extra units
+                    if (attackValue > bestAttackValue)
+                        bestAttackValue = attackValue;
+                }
+                else if (arriving > 0)
+                {
+                    // Can weaken but not capture
+                    int attackValue = (arriving * 50) / Mathf.Max(1, targetDefense);
+                    if (attackValue > bestAttackValue)
+                        bestAttackValue = attackValue;
                 }
             }
-            if (frontier && sp.reserve > 0) covered++;
+            
+            potential += bestAttackValue;
         }
-        return covered;
+        
+        return potential;
     }
 
-
-    private int GetCachedDistance(SpireConstruct a, SpireConstruct b)
+    /// <summary>
+    /// Calculate territorial control: average distance advantage to key spires
+    /// </summary>
+    private static int CalculateTerritorialControl(List<AIState.SpireSnapshot> ownedSpires,
+        List<AIState.SpireSnapshot> neutrals, List<AIState.SpireSnapshot> enemySpires,
+        Func<SpireConstruct, SpireConstruct, int> getDistance)
     {
-        if (a == null || b == null || a.parentCell == null || b.parentCell == null) return 0;
-        var key = (a.GetInstanceID(), b.GetInstanceID());
-        if (distanceCache.TryGetValue(key, out var d)) return d;
-        var grid = cachedGrid != null ? cachedGrid : FindObjectOfType<HexGrid>();
-        int dist = grid != null ? grid.GetDistance(a.parentCell, b.parentCell) : 0;
-        distanceCache[key] = dist;
-        return dist;
+        if (ownedSpires.Count == 0) return 0;
+        
+        int control = 0;
+        var allTargets = new List<AIState.SpireSnapshot>();
+        allTargets.AddRange(neutrals);
+        allTargets.AddRange(enemySpires);
+        
+        foreach (var target in allTargets)
+        {
+            int minOwnedDist = int.MaxValue;
+            int minEnemyDist = int.MaxValue;
+            
+            // Find closest owned spire to target
+            foreach (var owned in ownedSpires)
+            {
+                int dist = getDistance(owned.LiveRef, target.LiveRef);
+                if (dist < minOwnedDist)
+                    minOwnedDist = dist;
+            }
+            
+            // Find closest enemy spire to target
+            foreach (var enemy in enemySpires)
+            {
+                int dist = getDistance(enemy.LiveRef, target.LiveRef);
+                if (dist < minEnemyDist)
+                    minEnemyDist = dist;
+            }
+            
+            // Positive if we're closer, negative if enemy is closer
+            if (minOwnedDist < int.MaxValue)
+            {
+                int advantage = (minEnemyDist == int.MaxValue) ? 10 : (minEnemyDist - minOwnedDist);
+                control += advantage;
+            }
+        }
+        
+        return control;
     }
-    void Start()
+
+    /// <summary>
+    /// Calculate positional value: centrality and clustering for defense
+    /// </summary>
+    private static int CalculatePositionalValue(List<AIState.SpireSnapshot> ownedSpires,
+        List<AIState.SpireSnapshot> allSpires, Func<SpireConstruct, SpireConstruct, int> getDistance)
     {
-        SEND_CAP = UiMgr.inst != null ? UiMgr.inst.generateCountPerCommand : 10;
+        if (ownedSpires.Count == 0) return 0;
+        
+        int positional = 0;
+        
+        // Reward spires that are centrally located (close to many other spires)
+        foreach (var owned in ownedSpires)
+        {
+            int totalDist = 0;
+            int count = 0;
+            
+            foreach (var other in allSpires)
+            {
+                if (owned.LiveRef == other.LiveRef) continue;
+                totalDist += getDistance(owned.LiveRef, other.LiveRef);
+                count++;
+            }
+            
+            if (count > 0)
+            {
+                int avgDist = totalDist / count;
+                // Lower average distance = more central = better
+                positional += Mathf.Max(0, 20 - avgDist);
+            }
+        }
+        
+        // Reward defensive clusters (owned spires close to each other)
+        for (int i = 0; i < ownedSpires.Count; i++)
+        {
+            for (int j = i + 1; j < ownedSpires.Count; j++)
+            {
+                int dist = getDistance(ownedSpires[i].LiveRef, ownedSpires[j].LiveRef);
+                if (dist <= 3) // Close spires can support each other
+                {
+                    positional += (4 - dist) * 5; // Closer = better
+                }
+            }
+        }
+        
+        return positional;
     }
 }

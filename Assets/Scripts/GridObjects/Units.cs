@@ -457,7 +457,7 @@ public class Units : GridObject
         for (int i = 0; i < offsets.Count; i++)
         {
             Vector2 o = offsets[i];
-            Vector3 pos = new Vector3(basePos.x + o.x, UnitMgr.inst.yHeight, basePos.z + o.y);
+            Vector3 pos = new Vector3(basePos.x + o.x, 0f, basePos.z + o.y);
             GameObject unitObj = Object.Instantiate(prefab, pos, Quaternion.identity, transform); // Parent visuals under this Units
             Unit unit = unitObj.GetComponent<Unit>();
             if (unit != null)

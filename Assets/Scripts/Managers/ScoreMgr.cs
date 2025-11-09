@@ -21,7 +21,8 @@ public class ScoreMgr : MonoBehaviour
 	public int lastAiSpires;
 
 	// Prevent premature finalize at scene start
-	private bool startedPlayObserved = false;
+	[HideInInspector]
+	public bool startedPlayObserved = false;
 
 	void Awake()
 	{
@@ -44,6 +45,7 @@ public class ScoreMgr : MonoBehaviour
 	{
 		result = GameResult.None;
 		lastPlayerUnits = lastAiUnits = lastPlayerSpires = lastAiSpires = 0;
+		startedPlayObserved = false;
 	}
 
 	// Check end condition:
@@ -63,10 +65,7 @@ public class ScoreMgr : MonoBehaviour
 		if (knownSpires == 0)
 			return; // spires not discovered yet
 
-	// Use GameMgr reserves as the definition of remaining units
-		lastPlayerUnits = Mathf.Max(0, GameMgr.inst.remainingPlayerUnits);
-		lastAiUnits = Mathf.Max(0, GameMgr.inst.remainingAiUnits);
-
+		// Unit counts are already updated by UpdateUnitCounts() in Update()
 		// Only allow finalize after we've seen any reserve > 0 at least once
 		if (!startedPlayObserved)
 		{
@@ -75,10 +74,6 @@ public class ScoreMgr : MonoBehaviour
 			else
 				return; // both zero and never saw >0 yet: don't finalize at frame 0
 		}
-
-		// Always compute spire counts for immediate one-sided finish rule
-		lastPlayerSpires = GameMgr.inst.playerSpires.Count;
-		lastAiSpires = GameMgr.inst.aiSpires.Count;
 
 		// 1. One-sided finish immediate-win rule
 		if (lastPlayerUnits == 0 && lastAiUnits > 0)
@@ -129,22 +124,46 @@ public class ScoreMgr : MonoBehaviour
 
     private void NotifyMatchEnd()
     {
+        // Notify TurnManager to end the game immediately
+        if (TurnManager.inst != null)
+        {
+            TurnManager.inst.EndGame();
+        }
+        
         // Notify LevelManager of match end
         if (LevelManager.inst != null)
         {
             LevelManager.inst.OnMatchEnd(result);
         }
     }
+    
     void Update()
     {
 		// Poll-based check is acceptable here since finalization happens once per match
         
 		if (!isFinalized)
         {
-            
+            // Update unit counts for TurnManager to use for skip logic
+            UpdateUnitCounts();
 			CheckAndFinalizeIfDone();
 		}
 	}
+
+    /// <summary>
+    /// Update unit and spire counts for external systems (like TurnManager skip logic)
+    /// </summary>
+    private void UpdateUnitCounts()
+    {
+        if (GameMgr.inst == null) return;
+        
+        // Update unit counts from GameMgr reserves
+        lastPlayerUnits = Mathf.Max(0, GameMgr.inst.remainingPlayerUnits);
+        lastAiUnits = Mathf.Max(0, GameMgr.inst.remainingAiUnits);
+        
+        // Update spire counts
+        lastPlayerSpires = GameMgr.inst.playerSpires.Count;
+        lastAiSpires = GameMgr.inst.aiSpires.Count;
+    }
 
 	private int TeamPlayer()
 	{

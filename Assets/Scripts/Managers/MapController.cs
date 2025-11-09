@@ -33,7 +33,7 @@ public class MapController : MonoBehaviour
         StartCoroutine(RegenerateMapCoroutine());
     }
 
-    private IEnumerator RegenerateMapCoroutine()
+    public IEnumerator RegenerateMapCoroutine()
     {
         Debug.Log("MapController: Starting map regeneration...");
 

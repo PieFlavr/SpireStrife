@@ -23,10 +23,19 @@ Obstacles:
 - Force alternate routefinding
 
 🧠 AI System
-MiniMax Algorithm:
-- Chooses the best target Spire each turn
-- Evaluates based on unit strength, distance, and travel cost
-- Adjustable branching factor ≈ 4 × number of Spires
+Minimax AI (Clean Version Only):
+Minimax AI:
+1. Snapshot live spires (garrison + reserve separated).
+2. Generate candidate moves (spawn from reserve up to cap; arrival = send - distance).
+3. Negamax + alpha-beta search over plies (SearchDepth config).
+4. Evaluation = SpireOwnershipWeight * (spire diff) + UnitWeight * (unit diff).
+Inspector Settings (`MinimaxAI`):
+* SearchDepth – number of half-turns (AI, Player, AI ...)
+* GlobalMoveCap – limits branching for performance
+* AllowReinforce – consider friendly spires as reinforcement targets
+* k_self / k_attack – move ordering weights (defensive vs offensive potential)
+* SpireOwnershipWeight / UnitWeight – leaf evaluation weights
+Send amount is capped (MAX_SEND_AMOUNT = 20) and derived from reserve; travel attrition reduces arrival.
 
 A Pathfinding + Potential Fields (PF):*
 - Calculates optimal paths between Spires
@@ -66,3 +75,12 @@ cd SpireStrife
 ```
 Open the project in Unity (version 2022.3.20f or newer).
 Press Play in the Unity Editor to start the match against AI.
+
+🧠 AI Component
+Add `MinimaxAI` to a scene GameObject. `TurnManager` will automatically use it for AI planning.
+
+Tuning Tips:
+* Lower GlobalMoveCap if frame hitching occurs on large maps.
+* Reduce SearchDepth for faster turns; raise for deeper planning.
+* Raise k_attack relative to k_self for more aggression.
+* Slightly increase UnitWeight (1–3) to reward efficient captures.
