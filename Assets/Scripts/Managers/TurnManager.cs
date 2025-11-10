@@ -10,11 +10,8 @@ public class TurnManager : MonoBehaviour
     public int turnCount = 0;
     [Tooltip("If true, game auto-starts on Start(). If false, waits in Init phase until StartGame() is called.")]
     public bool AutoStart = true;
-    // Track whether we've granted the player at least one interactive planning phase
     private bool playerHadInteractiveTurn = false;
-    // Track whether game over has been evaluated this frame
     private bool gameOverChecked = false;
-    // Mark when initial spires have been found so we don't trigger premature GameOver
     private bool initialSpiresEstablished = false;
 
     public enum Phase { Init, PlayerPlanning, PlayerResolving, AiPlanning, AiResolving, GameOver }
@@ -31,13 +28,8 @@ public class TurnManager : MonoBehaviour
     {
         if (CurrentPhase == Phase.Init && AutoStart)
         {
-            // If a SpireGenerator exists and is still generating, defer start.
             var gen = FindObjectOfType<SpireGenerator>();
-            if (gen != null && gen.IsGenerating)
-            {
-                // SpireGenerator will call StartGame() when done if configured.
-                return;
-            }
+            if (gen != null && gen.IsGenerating) return;
             StartGame();
         }
     }
@@ -55,11 +47,9 @@ public class TurnManager : MonoBehaviour
         }
     }
 
-    // Initialize and start the first player turn
     public void StartGame()
     {
         if (CurrentPhase != Phase.Init) return;
-        // If spires aren't spawned yet, wait a short time before starting
         if (!HaveAnySpires())
         {
             StartCoroutine(WaitForInitialSpiresThenStart());
@@ -69,45 +59,30 @@ public class TurnManager : MonoBehaviour
         StartPlayerPlanning();
     }
 
-    // Call this from an "End Turn" button to end player planning and resolve player moves
     public void EndPlayerTurn()
     {
         if (CurrentPhase != Phase.PlayerPlanning || isResolving) return;
         StartCoroutine(ResolvePlayerThenAi());
     }
 
-    private void 
-    StartPlayerPlanning()
+    private void StartPlayerPlanning()
     {
         turnCount++;
-        
-        // Reset AI for new turn cycle to prevent loops
         var ai = FindObjectOfType<MinimaxAI>();
-        if (ai != null)
-        {
-            ai.ResetForNewTurn();
-        }
-        
-        // Only declare game over after initial spires exist
+        if (ai != null) ai.ResetForNewTurn();
         if (initialSpiresEstablished && CheckAndSetGameOver()) return;
-
-        // Allow at least one interactive player turn even if they start with zero units (e.g. can select spires to spawn)
         if (!playerHadInteractiveTurn)
         {
             CurrentPhase = Phase.PlayerPlanning;
             playerHadInteractiveTurn = true;
             return;
         }
-
-        // After first interactive turn, skip if player truly has no active units
         if (ShouldSkipTeamTurn(playerTeamId))
         {
             StartCoroutine(RunSingleAiTurnThenReturn());
             return;
         }
-
         CurrentPhase = Phase.PlayerPlanning;
-        // PlayerInputEnabled becomes true via property
     }
 
     private System.Collections.IEnumerator ResolvePlayerThenAi()
@@ -115,55 +90,30 @@ public class TurnManager : MonoBehaviour
         isResolving = true;
         turnCount++;
         CurrentPhase = Phase.PlayerResolving;
-
-        // Resolve conflicts within player moves if needed (rare in single-team queue)
         ResolveConflicts(queuedPlayer);
-
-        yield return ResolveTeamAsync(queuedPlayer);
-
-        // Check if AI should be skipped before planning
+        yield return ResolveTeamAsync(queuedPlayer, playerTeamId);
         if (ShouldSkipTeamTurn(aiTeamId))
         {
             Debug.Log("[TurnManager] AI has no units/reserves, skipping AI turn");
-            foreach (var spire in FindObjectsOfType<SpireConstruct>())
-                spire.ResetTurn();
+            foreach (var spire in FindObjectsOfType<SpireConstruct>()) spire.ResetTurn();
             isResolving = false;
-            if (!CheckAndSetGameOver())
-                StartPlayerPlanning();
+            if (!CheckAndSetGameOver()) StartPlayerPlanning();
             yield break;
         }
-
-        CurrentPhase = Phase.AiPlanning; // lock input by property
-
-        // AI planning hook: use clean AI
-    var ai = FindObjectOfType<MinimaxAI>();
+        CurrentPhase = Phase.AiPlanning;
+        var ai = FindObjectOfType<MinimaxAI>();
         if (ai != null)
         {
             ai.PlanAndQueueAIMoves();
-            // Wait until AI finishes async path planning so movement queues are ready this phase
             int guard = 0;
-            while (ai.IsBusy && guard < 300)
-            {
-                guard++;
-                yield return null;
-            }
+            while (ai.IsBusy && guard < 300) { guard++; yield return null; }
         }
-
         CurrentPhase = Phase.AiResolving;
-
-    // Resolve conflicts within AI moves (again, single-team queue)
         ResolveConflicts(queuedAi);
-
-        yield return ResolveTeamAsync(queuedAi);
-
-        // New turn cycle: reset spires and go back to player planning
-        foreach (var spire in FindObjectsOfType<SpireConstruct>())
-        {
-            spire.ResetTurn();
-        }
+        yield return ResolveTeamAsync(queuedAi, aiTeamId);
+        foreach (var spire in FindObjectsOfType<SpireConstruct>()) spire.ResetTurn();
         isResolving = false;
-        if (!CheckAndSetGameOver())
-            StartPlayerPlanning();
+        if (!CheckAndSetGameOver()) StartPlayerPlanning();
     }
 
     private void ResolveConflicts(List<Units> queued)
@@ -172,8 +122,7 @@ public class TurnManager : MonoBehaviour
         {
             for (int j = i + 1; j < queued.Count; j++)
             {
-                Units a = queued[i];
-                Units b = queued[j];
+                Units a = queued[i]; Units b = queued[j];
                 if (a == null || b == null) continue;
                 if (a.HasPathConflict(b))
                 {
@@ -183,15 +132,12 @@ public class TurnManager : MonoBehaviour
                 }
             }
         }
-        // Remove destroyed or null units
         queued.RemoveAll(u => u == null || u.unitCount <= 0 || u.state == Units.UnitState.Destroyed);
     }
 
-    private System.Collections.IEnumerator ResolveTeamAsync(List<Units> queued)
+    private System.Collections.IEnumerator ResolveTeamAsync(List<Units> queued, int? teamIdOverride = null)
     {
-        // Execute surviving movements (animated) and wait for completion of all
         int pending = 0;
-
         foreach (var u in queued.ToArray())
         {
             if (u != null && u.unitCount > 0 && u.state == Units.UnitState.Traversing)
@@ -200,94 +146,88 @@ public class TurnManager : MonoBehaviour
                 u.ExecuteMovementAnimatedWithCallback(() => { pending = Mathf.Max(0, pending - 1); });
             }
         }
-
-        // Wait until all complete
         while (pending > 0) yield return null;
-
-        // Clear queue
+        int teamId = teamIdOverride ?? InferTeamFromQueue(queued);
+        if (teamId >= 0)
+        {
+            int guard = 0; int guardMax = 1200;
+            while (AnyTraversingUnits(teamId) && guard < guardMax)
+            {
+                guard++; yield return null;
+            }
+        }
         queued.Clear();
+    }
+
+    private int InferTeamFromQueue(List<Units> queued)
+    {
+        foreach (var u in queued) { if (u != null) return u.teamID; }
+        return -1;
+    }
+
+    private bool AnyTraversingUnits(int teamId)
+    {
+        var all = FindObjectsOfType<Units>();
+        foreach (var u in all)
+        {
+            if (u != null && u.teamID == teamId && u.state == Units.UnitState.Traversing) return true;
+        }
+        return false;
     }
 
     // =========================
     // Auto-skip loop when player has no units
     // =========================
-    private bool ShouldSkipPlayerTurn()
+    private bool ShouldSkipPlayerTurn() => ShouldSkipTeamTurn(playerTeamId);
+
+    private bool ShouldSkipTeamTurn(int teamId)
     {
-           // Legacy method retained for compatibility; now simply checks player unit count
-           return ShouldSkipTeamTurn(playerTeamId);
+        if (ScoreMgr.inst != null)
+        {
+            int remainingUnits = (teamId == playerTeamId) ? ScoreMgr.inst.lastPlayerUnits : ScoreMgr.inst.lastAiUnits;
+            if (remainingUnits <= 0)
+            {
+                Debug.Log($"[TurnManager] Team {teamId} has {remainingUnits} units remaining, skipping turn");
+                return true;
+            }
+            return false;
+        }
+        int activeUnits = CountActiveUnits(teamId);
+        if (activeUnits > 0) return false;
+        var spires = FindObjectsOfType<SpireConstruct>();
+        foreach (var s in spires)
+        {
+            if (s != null && s.teamID == teamId && s.remainingGarrison > 0) return false;
+        }
+        return true;
     }
 
-        private bool ShouldSkipTeamTurn(int teamId)
-        {
-            // Use ScoreMgr's unit tracking for accurate remaining units count
-            if (ScoreMgr.inst != null)
-            {
-                // ScoreMgr tracks remaining units (reserves) from GameMgr
-                int remainingUnits = (teamId == playerTeamId) 
-                    ? ScoreMgr.inst.lastPlayerUnits 
-                    : ScoreMgr.inst.lastAiUnits;
-                
-                // Skip turn if team has no remaining units
-                if (remainingUnits <= 0)
-                {
-                    Debug.Log($"[TurnManager] Team {teamId} has {remainingUnits} units remaining, skipping turn");
-                    return true;
-                }
-                
-                return false;
-            }
-            
-            // Fallback: Skip if no active units AND no available reserves at owned spires
-            int activeUnits = CountActiveUnits(teamId);
-            if (activeUnits > 0) return false;
-            
-            // Check if team has any reserves available
-            var spires = FindObjectsOfType<SpireConstruct>();
-            foreach (var s in spires)
-            {
-                if (s != null && s.teamID == teamId && s.remainingGarrison > 0)
-                {
-                    return false; // Has reserves, don't skip
-                }
-            }
-            
-            return true; // No units and no reserves, skip turn
-        }
-
         // Single AI turn when player turn is skipped
-        private System.Collections.IEnumerator RunSingleAiTurnThenReturn()
+    private System.Collections.IEnumerator RunSingleAiTurnThenReturn()
+    {
+        if (isResolving) yield break; // guard against re-entrance
+        isResolving = true;
+        if (ShouldSkipTeamTurn(aiTeamId))
         {
-            // If AI also has no units, end game
-            if (ShouldSkipTeamTurn(aiTeamId))
-            {
-                CheckAndSetGameOver();
-                yield break;
-            }
-
-            CurrentPhase = Phase.AiPlanning;
-            var ai = FindObjectOfType<MinimaxAI>();
-            if (ai != null)
-            {
-                ai.PlanAndQueueAIMoves();
-                int guard = 0;
-                while (ai.IsBusy && guard < 300)
-                {
-                    guard++;
-                    yield return null;
-                }
-            }
-
-            CurrentPhase = Phase.AiResolving;
-            ResolveConflicts(queuedAi);
-            yield return ResolveTeamAsync(queuedAi);
-
-            foreach (var spire in FindObjectsOfType<SpireConstruct>())
-                spire.ResetTurn();
-
+            CheckAndSetGameOver();
             isResolving = false;
-            if (!CheckAndSetGameOver())
-                StartPlayerPlanning();
+            yield break;
         }
+        CurrentPhase = Phase.AiPlanning;
+        var ai = FindObjectOfType<MinimaxAI>();
+        if (ai != null)
+        {
+            ai.PlanAndQueueAIMoves();
+            int guard = 0;
+            while (ai.IsBusy && guard < 300) { guard++; yield return null; }
+        }
+        CurrentPhase = Phase.AiResolving;
+        ResolveConflicts(queuedAi);
+        yield return ResolveTeamAsync(queuedAi, aiTeamId);
+        foreach (var spire in FindObjectsOfType<SpireConstruct>()) spire.ResetTurn();
+        isResolving = false;
+        if (!CheckAndSetGameOver()) StartPlayerPlanning();
+    }
 
         // ================= Game Over Checks =================
         private bool CheckAndSetGameOver()

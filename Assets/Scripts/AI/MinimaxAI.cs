@@ -46,6 +46,10 @@ public class MinimaxAI : MonoBehaviour
 
         [Tooltip("Weight for strategic positioning (center control)")]
         [Min(0)] public int PositionalWeight = 30;
+
+        [Header("AI Behavior")]
+        [Tooltip("How much randomness to introduce into move selection. 0 = deterministic, > 0 = more random.")]
+        [Range(0, 100)] public int Randomness = 25;
     }
 
     public Settings AISettings = new Settings();
@@ -239,13 +243,7 @@ public class MinimaxAI : MonoBehaviour
 
         // Compute desired send amount (respect hardcoded cap, don't exceed reserve)
         int dist = GetCachedDistance(action.From, action.To);
-        int defenders = 0;
-        var toSpire = action.To;
-        if (toSpire != null)
-        {
-            // Total defenders = garrison + reserve (consistent with UI logic)
-            defenders = (toSpire.GetTotalGarrisonCount()) + toSpire.remainingGarrison;
-        }
+        
         // Configure UiMgr for AI command (allow execution during AI phase)
         // Use the hardcoded generateCountPerCommand from UiMgr - don't override it
         UiMgr.inst.allowCommandWhenPlayerInputDisabled = true;
@@ -300,7 +298,6 @@ public class AIState
     public class SpireSnapshot
     {
         public int TeamId;
-        public int Garrison; // units currently in garrison
         public int Reserve;  // units available for spawning
         public SpireConstruct LiveRef;
     }
@@ -316,7 +313,6 @@ public class AIState
             st.Spires.Add(new SpireSnapshot
             {
                 TeamId = s.teamID,
-                Garrison = s.GetTotalGarrisonCount(),
                 Reserve = s.remainingGarrison,
                 LiveRef = s
             });
@@ -332,7 +328,6 @@ public class AIState
             copy.Spires.Add(new SpireSnapshot
             {
                 TeamId = s.TeamId,
-                Garrison = s.Garrison,
                 Reserve = s.Reserve,
                 LiveRef = s.LiveRef
             });
@@ -354,8 +349,6 @@ public class AIState
 
         // Apply spawning and sending
         from.Reserve -= toSpawn;
-        from.Garrison += toSpawn;
-        from.Garrison -= send;
 
         // Travel attrition: arrival = send - distance
         int arriving = send - move.EstimatedDistance;
@@ -400,17 +393,50 @@ public static class MinimaxAlgorithm
     MinimaxAI.Settings settings,
         Func<SpireConstruct, SpireConstruct, int> getDistance)
     {
-        int bestScore = int.MinValue;
-        AIMove bestMove = null;
         int sendAmount = GetSendAmount();
         var moves = GetValidMoves(root, aiTeam, settings, getDistance, sendAmount);
+
+        var scoredMoves = new List<(AIMove move, int score)>();
+
         foreach (var m in moves)
         {
             var s1 = root.SimulateAction(m, aiTeam, sendAmount);
             int sc = -Negamax(s1, depth - 1, int.MinValue + 1, int.MaxValue, playerTeam, aiTeam, settings, getDistance, sendAmount);
-            if (sc > bestScore) { bestScore = sc; bestMove = m; }
+            scoredMoves.Add((m, sc));
         }
-        return bestMove;
+
+        if (scoredMoves.Count == 0)
+        {
+            return null;
+        }
+
+        // Sort by score descending
+        scoredMoves = scoredMoves.OrderByDescending(m => m.score).ToList();
+        var bestScoredMove = scoredMoves[0];
+
+        if (settings.Randomness > 0 && scoredMoves.Count > 1)
+        {
+            // Filter for moves that are "good enough" (e.g., within a percentage of the best score)
+            int bestScore = bestScoredMove.score;
+            
+            // Allow for randomness even with negative scores
+            int scoreRange = scoredMoves.Max(m => m.score) - scoredMoves.Min(m => m.score);
+            if (scoreRange == 0) scoreRange = Mathf.Abs(bestScore); // Handle case where all scores are equal
+            if (scoreRange == 0) return bestScoredMove.move; // All moves are identical, no point in randomness
+
+            int scoreThreshold = bestScore - (scoreRange * settings.Randomness / 100);
+
+            var goodEnoughMoves = scoredMoves.Where(m => m.score >= scoreThreshold).ToList();
+
+            if (goodEnoughMoves.Count > 1)
+            {
+                // Select a random move from the good enough moves
+                int randomIndex = UnityEngine.Random.Range(0, goodEnoughMoves.Count);
+                return goodEnoughMoves[randomIndex].move;
+            }
+        }
+
+        return bestScoredMove.move;
     }
 
     private static int Negamax(AIState state, int depth, int alpha, int beta, int side,
