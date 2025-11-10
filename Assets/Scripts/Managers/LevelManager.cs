@@ -7,7 +7,7 @@ using System;
 
 /// <summary>
 /// Manages progression between levels and adjusts difficulty based on player performance.
-/// Integrates with SpireGenerator and MinimaxAI to scale challenge appropriately.
+/// Integrates with SpireGenerator and MinimaxAI_Clean to scale challenge appropriately.
 /// </summary>
 public class LevelManager : MonoBehaviour
 {
@@ -85,7 +85,7 @@ public class LevelManager : MonoBehaviour
 
         // Auto-find references if not assigned
         if (spireGenerator == null) spireGenerator = FindObjectOfType<SpireGenerator>();
-        if (minimaxAI == null) minimaxAI = FindObjectOfType<MinimaxAI>();
+    if (minimaxAI == null) minimaxAI = FindObjectOfType<MinimaxAI>();
         if (performanceStats == null) performanceStats = GetComponent<PerformanceStats>();
     }
 
@@ -201,20 +201,19 @@ public class LevelManager : MonoBehaviour
     private void ApplyDifficultyToAI(float difficulty)
     {
         // Scale search depth (1-5 based on difficulty)
-        minimaxAI.searchDepth = Mathf.RoundToInt(Mathf.Lerp(1, 5, difficulty));
-
-        // Scale AI thinking time budget
-        minimaxAI.aiMsBudgetPerTurn = Mathf.RoundToInt(Mathf.Lerp(50, 200, difficulty));
+        minimaxAI.AISettings.SearchDepth = Mathf.RoundToInt(Mathf.Lerp(1, 5, difficulty));
 
         // Scale move consideration breadth
-        minimaxAI.globalMoveCap = Mathf.RoundToInt(Mathf.Lerp(8, 40, difficulty));
-        minimaxAI.perSourceTopK = Mathf.RoundToInt(Mathf.Lerp(2, 6, difficulty));
+        minimaxAI.AISettings.GlobalMoveCap = Mathf.RoundToInt(Mathf.Lerp(8, 40, difficulty));
 
-        // Enable more aggressive targeting at higher difficulties
-        minimaxAI.considerPlayerTargets = difficulty > 0.3f;
-        minimaxAI.considerReinforcementTargets = difficulty > 0.5f;
+        // Enable reinforcement at mid+ difficulty
+        minimaxAI.AISettings.AllowReinforce = difficulty > 0.5f;
 
-        Debug.Log($"LevelManager: Set AI depth={minimaxAI.searchDepth}, budget={minimaxAI.aiMsBudgetPerTurn}ms");
+        // Optionally bias aggression with difficulty
+        minimaxAI.AISettings.k_attack = Mathf.RoundToInt(Mathf.Lerp(8, 16, difficulty));
+        minimaxAI.AISettings.k_self   = Mathf.RoundToInt(Mathf.Lerp(1, 4, difficulty));
+
+        Debug.Log($"LevelManager: Set Clean AI depth={minimaxAI.AISettings.SearchDepth}, cap={minimaxAI.AISettings.GlobalMoveCap}");
     }
 
     /// <summary>

@@ -7,7 +7,8 @@ public class ObstacleGeneratorEditor : Editor
 {
     void OnSceneGUI()
     {
-        var gen = (ObstacleGenerator)target;
+        // Target may become null during undo/redo or recompilation
+        var gen = target as ObstacleGenerator;
         if (gen == null) return;
 
         Event e = Event.current;
@@ -19,9 +20,11 @@ public class ObstacleGeneratorEditor : Editor
             Ray worldRay = HandleUtility.GUIPointToWorldRay(e.mousePosition);
 
             Undo.IncrementCurrentGroup();
-            Undo.RegisterFullObjectHierarchyUndo(gen.gameObject, "Paint Obstacle Cell");
-
-            gen.PaintObstacleAtRay(worldRay);
+            if (gen != null)
+            {
+                Undo.RegisterFullObjectHierarchyUndo(gen.gameObject, "Paint Obstacle Cell");
+                gen.PaintObstacleAtRay(worldRay);
+            }
 
             // Scene repaint and event used
             e.Use();
@@ -31,52 +34,86 @@ public class ObstacleGeneratorEditor : Editor
 
     public override void OnInspectorGUI()
     {
-        DrawDefaultInspector();
+        // Ensure serialized representation is valid before drawing
+        if (serializedObject == null || serializedObject.targetObject == null)
+            return;
+
+        serializedObject.UpdateIfRequiredOrScript();
+
+        // Draw all properties except the script reference using the safer iterator
+        using (new EditorGUI.DisabledScope(EditorApplication.isCompiling))
+        {
+            DrawPropertiesExcluding(serializedObject, "m_Script");
+        }
+
+        // Apply any property modifications before running actions that mutate the scene
+        serializedObject.ApplyModifiedProperties();
 
         GUILayout.Space(6);
         using (new EditorGUILayout.HorizontalScope())
         {
-            if (GUILayout.Button("Create Random Obstacles"))
+            using (new EditorGUI.DisabledScope(EditorApplication.isCompiling))
             {
-                var gen = (ObstacleGenerator)target;
-                Undo.RegisterFullObjectHierarchyUndo(gen.gameObject, "Create Random Obstacles");
-                gen.CreateObstacles();
-                EditorUtility.SetDirty(gen);
-            }
-            if (GUILayout.Button("Clear Obstacles"))
-            {
-                var gen = (ObstacleGenerator)target;
-                Undo.RegisterFullObjectHierarchyUndo(gen.gameObject, "Clear Obstacles");
-                gen.ClearObstacles();
-                EditorUtility.SetDirty(gen);
+                if (GUILayout.Button("Create Random Obstacles"))
+                {
+                    var gen = target as ObstacleGenerator;
+                    if (gen != null)
+                    {
+                        Undo.RegisterFullObjectHierarchyUndo(gen.gameObject, "Create Random Obstacles");
+                        gen.CreateObstacles();
+                        EditorUtility.SetDirty(gen);
+                    }
+                }
+                if (GUILayout.Button("Clear Obstacles"))
+                {
+                    var gen = target as ObstacleGenerator;
+                    if (gen != null)
+                    {
+                        Undo.RegisterFullObjectHierarchyUndo(gen.gameObject, "Clear Obstacles");
+                        gen.ClearObstacles();
+                        EditorUtility.SetDirty(gen);
+                    }
+                }
             }
         }
 
         GUILayout.Space(6);
         using (new EditorGUILayout.HorizontalScope())
         {
-            if (GUILayout.Button("Save -> JSON File"))
+            using (new EditorGUI.DisabledScope(EditorApplication.isCompiling))
             {
-                ((ObstacleGenerator)target).SaveCurrentObstaclesToJson();
-                EditorUtility.SetDirty(target);
-            }
-            if (GUILayout.Button("Save As Custom JSON File..."))
-            {
-                ((ObstacleGenerator)target).SaveCurrentObstaclesToCustomJson();
-                EditorUtility.SetDirty(target);
+                if (GUILayout.Button("Save -> JSON File"))
+                {
+                    var gen = target as ObstacleGenerator;
+                    if (gen != null)
+                    {
+                        gen.SaveCurrentObstaclesToJson();
+                        EditorUtility.SetDirty(gen);
+                    }
+                }
+                if (GUILayout.Button("Save As Custom JSON File..."))
+                {
+                    var gen = target as ObstacleGenerator;
+                    if (gen != null)
+                    {
+                        gen.SaveCurrentObstaclesToCustomJson();
+                        EditorUtility.SetDirty(gen);
+                    }
+                }
             }
         }
 
-        // if (GUILayout.Button("Apply Assigned Layout"))
-        // {
-        //     ((ObstacleGenerator)target).ApplyAssignedLayout();
-        //     EditorUtility.SetDirty(target);
-        // }
-
-        if (GUILayout.Button("Load <- JSON File"))
+        using (new EditorGUI.DisabledScope(EditorApplication.isCompiling))
         {
-            ((ObstacleGenerator)target).LoadObstaclesFromJson();
-            EditorUtility.SetDirty(target);
+            if (GUILayout.Button("Load <- JSON File"))
+            {
+                var gen = target as ObstacleGenerator;
+                if (gen != null)
+                {
+                    gen.LoadObstaclesFromJson();
+                    EditorUtility.SetDirty(gen);
+                }
+            }
         }
 
         EditorGUILayout.HelpBox("Scene paint: Shift + Left Click to add an obstacle on the clicked HexCell.\nUse 'Clear Obstacles' to remove all.", MessageType.Info);
