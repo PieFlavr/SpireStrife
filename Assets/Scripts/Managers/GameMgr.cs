@@ -6,18 +6,47 @@ using UnityEngine;
 
 public class GameMgr : MonoBehaviour
 {
-	public static GameMgr inst;
+	/// <summary>
+	/// Singleton instance of GameMgr. Manages spire ownership lists and unit counts.
+	/// This is the single source of truth for remaining units and spire ownership.
+	/// </summary>
+	public static GameMgr Instance { get; private set; }
+	
+	// Legacy compatibility - will be removed in future
+	public static GameMgr inst => Instance;
 
 	[Header("Tracked Spires (auto-populated)")]
 	public List<SpireConstruct> playerSpires = new List<SpireConstruct>();
 	public List<SpireConstruct> aiSpires = new List<SpireConstruct>();
     public List<SpireConstruct> neutralSpires = new List<SpireConstruct>();
+    
+    [Header("Unit Counts (single source of truth)")]
+    [Tooltip("Total remaining units for player (sum of all player spire reserves)")]
     public int remainingPlayerUnits = 0;
+    
+    [Tooltip("Total remaining units for AI (sum of all AI spire reserves)")]
     public int remainingAiUnits = 0;
 
 	private void Awake()
 	{
-		inst = this;
+		// Enforce singleton pattern - destroy duplicates
+		if (Instance != null && Instance != this)
+		{
+			Debug.LogWarning($"[GameMgr] Duplicate instance detected, destroying {gameObject.name}");
+			Destroy(gameObject);
+			return;
+		}
+		
+		Instance = this;
+	}
+	
+	private void OnDestroy()
+	{
+		// Clean up singleton reference
+		if (Instance == this)
+		{
+			Instance = null;
+		}
 	}
 
 	private void OnEnable()
@@ -98,16 +127,25 @@ public class GameMgr : MonoBehaviour
     }
     public void Update()
     {
+        // Update unit counts (single source of truth for victory conditions)
         remainingPlayerUnits = 0;
         remainingAiUnits = 0;
 
         foreach (var spire in playerSpires)
         {
-            remainingPlayerUnits += spire.remainingGarrison;
+            if (spire != null)
+                remainingPlayerUnits += spire.remainingGarrison;
         }
         foreach (var spire in aiSpires)
         {
-            remainingAiUnits += spire.remainingGarrison;
+            if (spire != null)
+                remainingAiUnits += spire.remainingGarrison;
         }
+        
+        // Optional: Log when unit counts change significantly (uncomment for debugging)
+        // if (Time.frameCount % 60 == 0) // Log once per second
+        // {
+        //     Debug.Log($"[GameMgr] Player: {remainingPlayerUnits} units at {playerSpires.Count} spires | AI: {remainingAiUnits} units at {aiSpires.Count} spires");
+        // }
     }
 }

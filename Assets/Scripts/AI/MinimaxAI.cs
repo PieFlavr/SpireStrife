@@ -6,6 +6,7 @@ using UnityEngine;
 /// <summary>
 /// Clean refactored AI MonoBehaviour: owns tunable settings and Unity integration.
 /// Core search/simulation lives in static MinimaxAlgorithm for testability.
+/// Implements Minimax with alpha-beta pruning for strategic decision making.
 /// </summary>
 public class MinimaxAI : MonoBehaviour
 {
@@ -48,7 +49,15 @@ public class MinimaxAI : MonoBehaviour
     }
 
     public Settings AISettings = new Settings();
-    public static MinimaxAI inst;
+    
+    /// <summary>
+    /// Singleton instance of MinimaxAI. Called by TurnManager during AI planning phase.
+    /// </summary>
+    public static MinimaxAI Instance { get; private set; }
+    
+    // Legacy compatibility - will be removed in future
+    public static MinimaxAI inst => Instance;
+    
     public bool IsBusy { get; private set; } = false;
 
     private HexGrid cachedGrid;
@@ -60,8 +69,25 @@ public class MinimaxAI : MonoBehaviour
 
     private void Awake()
     {
-    inst = this;
+        // Enforce singleton pattern - destroy duplicates
+        if (Instance != null && Instance != this)
+        {
+            Debug.LogWarning($"[MinimaxAI] Duplicate instance detected, destroying {gameObject.name}");
+            Destroy(gameObject);
+            return;
+        }
+        
+        Instance = this;
         cachedGrid = FindObjectOfType<HexGrid>();
+    }
+    
+    private void OnDestroy()
+    {
+        // Clean up singleton reference
+        if (Instance == this)
+        {
+            Instance = null;
+        }
     }
 
     /// <summary>

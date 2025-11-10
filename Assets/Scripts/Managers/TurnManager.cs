@@ -4,7 +4,14 @@ using UnityEngine;
 
 public class TurnManager : MonoBehaviour
 {
-    public static TurnManager inst;
+    /// <summary>
+    /// Singleton instance of TurnManager. Controls the turn-based game loop.
+    /// </summary>
+    public static TurnManager Instance { get; private set; }
+    
+    // Legacy compatibility - will be removed in future
+    public static TurnManager inst => Instance;
+    
     public int playerTeamId = 0;
     public int aiTeamId = 1;
     public int turnCount = 0;
@@ -12,8 +19,6 @@ public class TurnManager : MonoBehaviour
     public bool AutoStart = true;
     // Track whether we've granted the player at least one interactive planning phase
     private bool playerHadInteractiveTurn = false;
-    // Track whether game over has been evaluated this frame
-    private bool gameOverChecked = false;
     // Mark when initial spires have been found so we don't trigger premature GameOver
     private bool initialSpiresEstablished = false;
 
@@ -25,7 +30,27 @@ public class TurnManager : MonoBehaviour
     private readonly List<Units> queuedAi = new List<Units>();
     private bool isResolving = false;
 
-    void Awake() { inst = this; }
+    void Awake() 
+    { 
+        // Enforce singleton pattern - destroy duplicates
+        if (Instance != null && Instance != this)
+        {
+            Debug.LogWarning($"[TurnManager] Duplicate instance detected, destroying {gameObject.name}");
+            Destroy(gameObject);
+            return;
+        }
+        
+        Instance = this;
+    }
+    
+    private void OnDestroy()
+    {
+        // Clean up singleton reference
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
 
     void Start()
     {
@@ -217,41 +242,48 @@ public class TurnManager : MonoBehaviour
            return ShouldSkipTeamTurn(playerTeamId);
     }
 
+        /// <summary>
+        /// Determines if a team's turn should be skipped due to lack of units.
+        /// Uses GameMgr as single source of truth for unit counts.
+        /// </summary>
+        /// <param name="teamId">Team ID to check (0=Player, 1=AI)</param>
+        /// <returns>True if turn should be skipped, false if team can still play</returns>
         private bool ShouldSkipTeamTurn(int teamId)
         {
-            // Use ScoreMgr's unit tracking for accurate remaining units count
-            if (ScoreMgr.inst != null)
+            // SINGLE SOURCE OF TRUTH: Use GameMgr for unit counts
+            if (GameMgr.inst == null) 
             {
-                // ScoreMgr tracks remaining units (reserves) from GameMgr
-                int remainingUnits = (teamId == playerTeamId) 
-                    ? ScoreMgr.inst.lastPlayerUnits 
-                    : ScoreMgr.inst.lastAiUnits;
-                
-                // Skip turn if team has no remaining units
-                if (remainingUnits <= 0)
-                {
-                    Debug.Log($"[TurnManager] Team {teamId} has {remainingUnits} units remaining, skipping turn");
-                    return true;
-                }
-                
-                return false;
+                Debug.LogWarning("[TurnManager] GameMgr is null, cannot determine turn skip");
+                return false; // Default to not skipping if systems not ready
             }
             
-            // Fallback: Skip if no active units AND no available reserves at owned spires
-            int activeUnits = CountActiveUnits(teamId);
-            if (activeUnits > 0) return false;
+            // Get remaining units (reserves) from GameMgr
+            int remainingUnits = (teamId == playerTeamId) 
+                ? GameMgr.inst.remainingPlayerUnits 
+                : GameMgr.inst.remainingAiUnits;
             
-            // Check if team has any reserves available
-            var spires = FindObjectsOfType<SpireConstruct>();
-            foreach (var s in spires)
+            // Also check if team has any owned spires with reserves
+            int reservesAtSpires = 0;
+            var spires = (teamId == playerTeamId) 
+                ? GameMgr.inst.playerSpires 
+                : GameMgr.inst.aiSpires;
+            
+            foreach (var spire in spires)
             {
-                if (s != null && s.teamID == teamId && s.remainingGarrison > 0)
+                if (spire != null)
                 {
-                    return false; // Has reserves, don't skip
+                    reservesAtSpires += spire.remainingGarrison;
                 }
             }
             
-            return true; // No units and no reserves, skip turn
+            bool shouldSkip = (remainingUnits <= 0 && reservesAtSpires <= 0);
+            
+            if (shouldSkip)
+            {
+                Debug.Log($"[TurnManager] Skipping team {teamId} turn: {remainingUnits} units in reserves, {reservesAtSpires} at spires");
+            }
+            
+            return shouldSkip;
         }
 
         // Single AI turn when player turn is skipped
@@ -290,38 +322,61 @@ public class TurnManager : MonoBehaviour
         }
 
         // ================= Game Over Checks =================
+        /// <summary>
+        /// Checks if game over conditions are met and transitions to GameOver phase if so.
+        /// Victory condition: Game ends when BOTH sides run out of units (resource exhaustion).
+        /// Then compares spire counts to determine winner.
+        /// This matches the presentation description.
+        /// </summary>
+        /// <returns>True if game over was triggered, false if game continues</returns>
         private bool CheckAndSetGameOver()
         {
             if (CurrentPhase == Phase.GameOver) return true;
-            // Determine spire counts; game ends when one side has zero spires (or both zero)
+            
+            // Wait for systems to be ready
+            if (GameMgr.inst == null) return false;
+            
+            // Get unit and spire counts
+            int playerUnits = GameMgr.inst.remainingPlayerUnits;
+            int aiUnits = GameMgr.inst.remainingAiUnits;
             int playerSpires = CountSpires(playerTeamId);
             int aiSpires = CountSpires(aiTeamId);
-
-            // Extra diagnostic detail: list spire names per team
-            if (Application.isPlaying)
+            
+            // Game ends only when BOTH sides run out of units (resource exhaustion)
+            if (playerUnits <= 0 && aiUnits <= 0)
             {
-                var all = FindObjectsOfType<SpireConstruct>();
-                int rawPlayer = 0, rawAi = 0, rawNeutral = 0;
-                List<string> playerNames = new();
-                List<string> aiNames = new();
-                List<string> neutralNames = new();
-                foreach (var s in all)
+                // Compare spire counts to determine winner
+                if (playerSpires > aiSpires)
                 {
-                    if (s == null) continue;
-                    if (s.teamID == playerTeamId) { rawPlayer++; playerNames.Add(s.name); }
-                    else if (s.teamID == aiTeamId) { rawAi++; aiNames.Add(s.name); }
-                    else { rawNeutral++; neutralNames.Add(s.name); }
+                    Debug.Log($"[TurnManager] Game Over - Player wins with {playerSpires} spires vs AI's {aiSpires}");
                 }
-                 Debug.Log($"[TurnManager] GameOver check. CountSpires(Player)={playerSpires}, CountSpires(AI)={aiSpires}, RawPlayer={rawPlayer}, RawAI={rawAi}, RawNeutral={rawNeutral}\nPlayerSpires:[{string.Join(", ", playerNames)}]\nAISpires:[{string.Join(", ", aiNames)}]\nNeutralSpires:[{string.Join(", ", neutralNames)}]");
-            }
-
-            if (playerSpires == 0 || aiSpires == 0)
-            {
-                string reason = playerSpires == 0 && aiSpires == 0 ? "Both sides lost all spires" : (playerSpires == 0 ? "Player lost all spires" : "AI lost all spires");
-                Debug.Log($"[TurnManager] Entering GameOver. Reason: {reason}");
+                else if (aiSpires > playerSpires)
+                {
+                    Debug.Log($"[TurnManager] Game Over - AI wins with {aiSpires} spires vs Player's {playerSpires}");
+                }
+                else
+                {
+                    Debug.Log($"[TurnManager] Game Over - Draw with {playerSpires} spires each");
+                }
+                
                 EndGame();
                 return true;
             }
+            
+            // Optional: Also end if one side has no spires (can't generate more units)
+            if (playerSpires == 0 && aiSpires > 0)
+            {
+                Debug.Log("[TurnManager] Game Over - Player lost all spires (cannot generate more units)");
+                EndGame();
+                return true;
+            }
+            else if (aiSpires == 0 && playerSpires > 0)
+            {
+                Debug.Log("[TurnManager] Game Over - AI lost all spires (cannot generate more units)");
+                EndGame();
+                return true;
+            }
+            
             return false;
         }
 
@@ -447,114 +502,17 @@ public class TurnManager : MonoBehaviour
 
     /// <summary>
     /// Reset the entire game state and restart
+    /// SIMPLIFIED: Just reload the scene to avoid complex state management bugs
     /// </summary>
     private System.Collections.IEnumerator ResetGameAfterDelay(float delay)
     {
         yield return new UnityEngine.WaitForSeconds(delay);
         
-        Debug.Log("[TurnManager] Resetting game state...");
+        Debug.Log("[TurnManager] Reloading scene for fresh start...");
         
-        // Reset all managers
-        if (ScoreMgr.inst != null)
-        {
-            ScoreMgr.inst.ResetResult();
-        }
-        
-        if (GameMgr.inst != null)
-        {
-            GameMgr.inst.remainingPlayerUnits = 0;
-            GameMgr.inst.remainingAiUnits = 0;
-            GameMgr.inst.RebuildSpireLists();
-        }
-        
-        // Clear all queued units
-        queuedPlayer.Clear();
-        queuedAi.Clear();
-        
-        // Destroy all active unit groups
-        var allUnits = FindObjectsOfType<Units>();
-        foreach (var u in allUnits)
-        {
-            if (u != null)
-            {
-                Destroy(u.gameObject);
-            }
-        }
-        
-        // Destroy all spires - they will be regenerated with the new map
-        var allSpires = FindObjectsOfType<SpireConstruct>();
-        foreach (var spire in allSpires)
-        {
-            if (spire != null)
-            {
-                Destroy(spire.gameObject);
-            }
-        }
-        
-        // Reset turn state BEFORE regenerating map
-        turnCount = 0;
-        playerHadInteractiveTurn = false;
-        gameOverChecked = false;
-        initialSpiresEstablished = false;
-        isResolving = false;
-        CurrentPhase = Phase.Init;
-        
-        Debug.Log("[TurnManager] Waiting for cleanup to complete...");
-        yield return new UnityEngine.WaitForSeconds(0.5f);
-        
-        // Regenerate the map if MapController exists
-        var mapController = FindObjectOfType<MapController>();
-        if (mapController != null)
-        {
-            Debug.Log("[TurnManager] Regenerating map via MapController...");
-            yield return mapController.RegenerateMapCoroutine();
-            
-            // SpireGenerator will call StartGame() automatically if configured
-            // Wait to see if spires were generated
-            int waitFrames = 0;
-            while (!HaveAnySpires() && waitFrames < 300)
-            {
-                waitFrames++;
-                yield return null;
-            }
-            
-            if (HaveAnySpires())
-            {
-                Debug.Log("[TurnManager] Spires detected after regeneration.");
-                initialSpiresEstablished = true;
-                // If SpireGenerator's startTurnManagerOnComplete is true, it will call StartGame()
-                // Otherwise we need to call it manually
-                yield return new UnityEngine.WaitForSeconds(0.5f);
-                if (CurrentPhase == Phase.Init)
-                {
-                    Debug.Log("[TurnManager] Manually starting game after map regeneration...");
-                    StartGame();
-                }
-            }
-            else
-            {
-                Debug.LogError("[TurnManager] No spires generated after map regeneration!");
-            }
-        }
-        else
-        {
-            // No MapController - try to regenerate via SpireGenerator directly
-            var spireGen = FindObjectOfType<SpireGenerator>();
-            if (spireGen != null)
-            {
-                Debug.Log("[TurnManager] Regenerating map via SpireGenerator directly...");
-                yield return spireGen.GenerateSpiresCoroutine();
-                yield return new UnityEngine.WaitForSeconds(0.5f);
-                if (CurrentPhase == Phase.Init)
-                {
-                    StartGame();
-                }
-            }
-            else
-            {
-                Debug.LogError("[TurnManager] No MapController or SpireGenerator found! Cannot regenerate map.");
-                CurrentPhase = Phase.Init;
-            }
-        }
+        // Simple scene reload is much more reliable than manual cleanup
+        UnityEngine.SceneManagement.SceneManager.LoadScene(
+            UnityEngine.SceneManagement.SceneManager.GetActiveScene().name
+        );
     }
 }

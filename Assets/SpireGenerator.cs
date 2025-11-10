@@ -6,7 +6,8 @@ public class SpireGenerator : MonoBehaviour
 {
     public HexGrid hexGrid;
     public GameObject spirePrefab;
-    public int randomSeed = 42;
+    [Tooltip("Seed for procedural generation. Set to -1 for random seed each time, or set a specific value for reproducible maps")]
+    public int randomSeed = -1;
     [Header("Turn Manager Integration")]
     [Tooltip("Automatically start the Turn Manager when generation completes.")]
     public bool startTurnManagerOnComplete = true;
@@ -17,8 +18,13 @@ public class SpireGenerator : MonoBehaviour
     public int neutralSpireCount = 10;
 
     [Header("Spire Initial Garrison")]
-    public int spireInitialGarrison = 1000;
-    public int neutralSpireInitialGarrison = 10;
+    [Tooltip("Initial units at player/AI spires. Lower = longer games with more strategic depth")]
+    [Range(10, 1000)]
+    public int spireInitialGarrison = 50; // Reduced from 1000 for better balance
+    
+    [Tooltip("Initial units at neutral spires. Should be challenging but capturable")]
+    [Range(5, 100)]
+    public int neutralSpireInitialGarrison = 20; // Increased from 10 to make neutrals more valuable
 
 
     [Header("Player Anchor")]
@@ -64,9 +70,14 @@ public class SpireGenerator : MonoBehaviour
     void Awake()
     {
         IsGenerating = true; // mark generating early to avoid race with TurnManager.Start()
-        rng = new System.Random(randomSeed); // isolate PRNG for determinism
+        
+        // If randomSeed is -1, use a truly random seed based on time
+        int seed = (randomSeed == -1) ? System.Environment.TickCount : randomSeed;
+        rng = new System.Random(seed); // isolate PRNG for determinism
+        
+        Debug.Log($"[SpireGenerator] Using seed: {seed}");
         // If other systems rely on UnityEngine.Random, you may also seed it:
-        // Random.InitState(randomSeed);
+        // Random.InitState(seed);
     }
 
     void Start()

@@ -7,7 +7,13 @@ using UnityEngine;
 
 public class ScoreMgr : MonoBehaviour
 {
-	public static ScoreMgr inst;
+	/// <summary>
+	/// Singleton instance of ScoreMgr. Tracks game results and victory conditions.
+	/// </summary>
+	public static ScoreMgr Instance { get; private set; }
+	
+	// Legacy compatibility - will be removed in future
+	public static ScoreMgr inst => Instance;
 
 	public enum GameResult { None, PlayerWin, AiWin, Draw }
 	public GameResult result = GameResult.None;
@@ -26,7 +32,24 @@ public class ScoreMgr : MonoBehaviour
 
 	void Awake()
 	{
-		inst = this;
+		// Enforce singleton pattern - destroy duplicates
+		if (Instance != null && Instance != this)
+		{
+			Debug.LogWarning($"[ScoreMgr] Duplicate instance detected, destroying {gameObject.name}");
+			Destroy(gameObject);
+			return;
+		}
+		
+		Instance = this;
+	}
+	
+	private void OnDestroy()
+	{
+		// Clean up singleton reference
+		if (Instance == this)
+		{
+			Instance = null;
+		}
 	}
 
 	[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
