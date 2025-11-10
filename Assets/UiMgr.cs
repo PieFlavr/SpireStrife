@@ -18,12 +18,6 @@ public class UiMgr : MonoBehaviour
     public bool alwaysGenerateOnCommand = true;
     [Tooltip("Number of units to auto-generate when issuing a command (if enabled).")]
     public int generateCountPerCommand = 10;
-
-    // === AI Integration Overrides ===
-    // When true, allow issuing a command even when PlayerInputEnabled is false (AI phase)
-    [HideInInspector] public bool allowCommandWhenPlayerInputDisabled = false;
-    // When set, overrides how many units to spawn/send on the next command
-    [HideInInspector] public int? sendOverrideForNextCommand = null;
     public void Awake()
     {
         inst = this;
@@ -39,18 +33,12 @@ public class UiMgr : MonoBehaviour
 
     // Update is called once per frame
     void Update()
-    {
-        // === MODIFIED FIX ===
-        // Only allow input if the TurnManager exists AND it's the player's planning phase.
-        // If the manager is missing (inst == null) OR it's not the player's turn, do nothing.
-        if (TurnManager.inst == null || !TurnManager.inst.PlayerInputEnabled)
+{
+        // Disable input when it's not the player's planning phase
+        if (TurnManager.inst != null && !TurnManager.inst.PlayerInputEnabled)
         {
             return;
         }
-        // === END FIX ===
-
-        // --- At this point, we know TurnManager.inst exists AND PlayerInputEnabled is true ---
-
         if (Input.GetMouseButtonDown(0))
         {
             Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
@@ -206,118 +194,126 @@ public class UiMgr : MonoBehaviour
 
     private void OnPathFound(Vector3[] path, bool pathSuccessful)
     {
-        // === ADDED FIX ===
-        // Check if player input is still allowed. If not (e.g., turn ended
-        // while path was being calculated), abort this move.
-        if (TurnManager.inst != null && !TurnManager.inst.PlayerInputEnabled && !allowCommandWhenPlayerInputDisabled)
+        if (pathSuccessful)
         {
-            Debug.LogWarning("OnPathFound: Path was found, but player input is no longer enabled. Aborting move.");
-            ClearPath();
-            return;
-        }
-        // === END FIX ===
+            Debug.Log("Path found with " + path.Length + " waypoints.");
+            currentPath = path;
+            ColorPathCells();
 
-        if (!pathSuccessful)
+            // Convert to cell path
+            List<HexCell> cellPath = new List<HexCell>();
+            foreach (var pos in path)
+            {
+                var c = grid.GetCellFromWorldPosition(pos);
+                if (c != null) cellPath.Add(c);
+            }
+
+            // Use cached spire references from click selection; fall back to lookup if needed
+            SpireConstruct startSpire = selectedSpire;
+            SpireConstruct destSpire = targetSpire;
+            if (startSpire == null && currentlySelectedCell != null)
+            {
+                startSpire = currentlySelectedCell
+                    .GetComponentInChildren<SpireConstruct>();
+            }
+            if (destSpire == null && currentlyTargetCell != null)
+            {
+                destSpire = currentlyTargetCell
+                    .GetComponentInChildren<SpireConstruct>();
+            }
+
+            if (startSpire != null && destSpire != null)
+            {
+                // Determine how many units are needed to claim, including travel losses.
+                int playerTeam = TurnManager.inst != null ? TurnManager.inst.playerTeamId : 0;
+                int needToClaim = destSpire.GetRemainingClaimCostForTeam(playerTeam);
+
+                // Sum per-step movement loss: loss = steps = waypoints - 1
+                int travelLoss = Mathf.Max(0, path.Length - 1);
+
+                // Units needed = claim + travel loss
+                int desiredSend = Mathf.Max(1, needToClaim + travelLoss);
+
+                int send = 0;
+                if (alwaysGenerateOnCommand)
+                {
+                    // Consume from the spire's remaining reserve when generating.
+                    int reserve = startSpire.remainingGarrison;
+                    if (reserve <= 0)
+                    {
+                        Debug.LogWarning("No reserve remaining at source spire to generate units.");
+                        ClearPath();
+                        return;
+                    }
+
+                    // Ensure we spawn enough to meet either desiredSend or the configured minimum per command.
+                    int minToSendThisCommand = generateCountPerCommand > 0 ? Mathf.Max(desiredSend, generateCountPerCommand) : desiredSend;
+
+                    // If reserve is less than generateCountPerCommand, send all remaining; otherwise cap by reserve.
+                    int toSpawn = reserve < generateCountPerCommand ? reserve : Mathf.Min(minToSendThisCommand, reserve);
+                    if (toSpawn <= 0)
+                    {
+                        Debug.LogWarning("Nothing to spawn after applying reserve constraints.");
+                        ClearPath();
+                        return;
+                    }
+
+                    var spawned = startSpire.SpawnGarrison(toSpawn);
+                    if (spawned == null)
+                    {
+                        Debug.LogWarning("Failed to spawn units at source spire.");
+                        ClearPath();
+                        return;
+                    }
+
+                    // Reduce remaining reserve by the amount generated
+                    startSpire.remainingGarrison -= toSpawn;
+
+                    int available = startSpire.GetTotalGarrisonCount();
+                    // Send the generated amount (bounded by what's available on the cell)
+                    send = Mathf.Min(available, toSpawn);
+                }
+                else
+                {
+                    // Use existing garrison only
+                    int available = startSpire.GetTotalGarrisonCount();
+                    send = Mathf.Min(available, desiredSend);
+                    if (send <= 0)
+                    {
+                        Debug.LogWarning("No units available at source spire.");
+                        ClearPath();
+                        return;
+                    }
+                }
+
+                // Issue the command
+                bool commanded = startSpire.CommandUnits(send, cellPath, destSpire, path);
+                if (!commanded)
+                {
+                    Debug.Log("Failed to command units.");
+                    ClearPath();
+                }
+                else
+                {
+                    // Immediately resolve player turn (no queue): player then AI then back to player
+                    if (TurnManager.inst != null)
+                    {
+                        TurnManager.inst.EndPlayerTurn();
+                    }
+                }
+            }
+            else
+            {
+                Debug.LogError("Missing SpireConstruct on selected/target cells.");
+                ClearPath();
+            }
+        }
+        else
         {
             Debug.Log("Path not found!");
             currentPath = null;
             ClearPath();
-            return;
         }
-
-        Debug.Log($"Path found with {path.Length} waypoints.");
-        currentPath = path;
-        ColorPathCells();
-
-        // Convert to cell path
-        List<HexCell> cellPath = path
-            .Select(pos => grid.GetCellFromWorldPosition(pos))
-            .Where(c => c != null)
-            .ToList();
-
-        // Use cached spire references from click selection; fall back to lookup if needed
-        SpireConstruct startSpire = selectedSpire ?? currentlySelectedCell?.GetComponentInChildren<SpireConstruct>();
-        SpireConstruct destSpire = targetSpire ?? currentlyTargetCell?.GetComponentInChildren<SpireConstruct>();
-
-        if (startSpire == null || destSpire == null)
-        {
-            Debug.LogError("Missing SpireConstruct on selected/target cells.");
-            ClearPath();
-            return;
-        }
-
-        int send = 0;
-        int? desiredOverride = sendOverrideForNextCommand;
-        if (alwaysGenerateOnCommand)
-        {
-            int reserve = startSpire.remainingGarrison;
-            if (reserve <= 0)
-            {
-                Debug.LogWarning("No reserve remaining at source spire to generate units.");
-                ClearPath();
-                return;
-            }
-
-            int targetToSpawn = generateCountPerCommand;
-            if (desiredOverride.HasValue)
-            {
-                targetToSpawn = Mathf.Min(desiredOverride.Value, reserve);
-            }
-            int toSpawn = Mathf.Min(targetToSpawn, reserve);
-            if (toSpawn <= 0)
-            {
-                Debug.LogWarning("Nothing to spawn after applying reserve constraints.");
-                ClearPath();
-                return;
-            }
-
-            var spawned = startSpire.SpawnGarrison(toSpawn);
-            if (spawned == null)
-            {
-                Debug.LogWarning("Failed to spawn units at source spire.");
-                ClearPath();
-                return;
-            }
-
-            startSpire.remainingGarrison -= toSpawn;
-            if (desiredOverride.HasValue)
-                send = Mathf.Min(desiredOverride.Value, startSpire.GetTotalGarrisonCount());
-            else
-                send = Mathf.Min(startSpire.GetTotalGarrisonCount(), toSpawn);
-        }
-        else
-        {
-            if (desiredOverride.HasValue)
-                send = Mathf.Min(desiredOverride.Value, startSpire.GetTotalGarrisonCount());
-            else
-                send = startSpire.GetTotalGarrisonCount();
-            if (send <= 0)
-            {
-                Debug.LogWarning("No units available at source spire.");
-                ClearPath();
-                return;
-            }
-        }
-
-        // Issue the command
-        bool commanded = startSpire.CommandUnits(send, cellPath, destSpire, path);
-        if (!commanded)
-        {
-            Debug.Log("Failed to command units.");
-            ClearPath();
-            return;
-        }
-
-        // If the player issued this command during planning, end the player's turn.
-        // For AI-issued commands (during AI phase), do not end the player's turn here.
-        if (TurnManager.inst == null || TurnManager.inst.PlayerInputEnabled)
-        {
-            TurnManager.inst?.EndPlayerTurn();
-        }
-
-        // Reset AI overrides after issuing the command
-        allowCommandWhenPlayerInputDisabled = false;
-        sendOverrideForNextCommand = null;
     }
 
     

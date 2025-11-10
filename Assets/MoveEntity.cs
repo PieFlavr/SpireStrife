@@ -7,9 +7,10 @@ public class MoveUnits : MonoBehaviour
 {
     public static MoveUnits inst;
 
-    [Header("Units managed (runtime only)")]
-    [HideInInspector] // prevent inspector SerializedProperty binding / disposal issues
-    private List<Unit> units = new();
+    [Header("Units managed")]
+    public List<Unit> units = new();
+
+    [Header("Potential field params")]
     public float potentialDistanceThreshold = 5.0f;
     public float repulsiveCoefficient = 1.0f;   // stronger push away
     public float repulsiveExponent = 2.0f;      // faster decay with distance
@@ -127,13 +128,8 @@ public class MoveUnits : MonoBehaviour
                         ? Mathf.Min(unit.maxSpeed, groupSpeed)
                         : (useMaxSpeedMovement ? unit.maxSpeed : unit.cruiseSpeed);
 
-                // Convert waypoint to local space so potential field matches entity.position space
-                Vector3 localWaypoint = unit.transform.parent != null
-                    ? unit.transform.parent.InverseTransformPoint(waypoint)
-                    : waypoint;
-
-                // Potential-field steering toward this path waypoint (treat as waypoint => full baseSpeed)
-                var dhds = ComputePotentialDHDS(unit, localWaypoint, baseSpeed, true);
+                // Use world-space toward waypoint; heading measured in world yaw
+                var dhds = ComputeDHDSWorld(unit, waypoint, useMaxSpeedMovement);
 
                 unit.desiredHeading = dhds.dhDegrees;
                 unit.desiredSpeed = dhds.targetSpeed;
@@ -145,7 +141,8 @@ public class MoveUnits : MonoBehaviour
                 unit.transform.localEulerAngles = new Vector3(0f, unit.heading, 0f);
             }
 
-            // Snap to the reached waa/ Convert world waypoint to local for position storage
+            // Snap to the reached waypoint
+            // Convert world waypoint to local for position storage
             unit.transform.position = waypoint;
             unit.position = unit.transform.localPosition;
 

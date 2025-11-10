@@ -7,9 +7,6 @@ public class SpireGenerator : MonoBehaviour
     public HexGrid hexGrid;
     public GameObject spirePrefab;
     public int randomSeed = 42;
-    [Header("Turn Manager Integration")]
-    [Tooltip("Automatically start the Turn Manager when generation completes.")]
-    public bool startTurnManagerOnComplete = true;
 
     [Header("Counts")]
     public int playerSpireCount = 1;
@@ -56,14 +53,12 @@ public class SpireGenerator : MonoBehaviour
     readonly List<Vector3> placedWorld = new();
     bool firstPlayerSet = false;
     Vector2Int firstPlayerAxial;
-    public bool IsGenerating { get; private set; } = false;
 
     // deterministic RNG
     System.Random rng;
 
     void Awake()
     {
-        IsGenerating = true; // mark generating early to avoid race with TurnManager.Start()
         rng = new System.Random(randomSeed); // isolate PRNG for determinism
         // If other systems rely on UnityEngine.Random, you may also seed it:
         // Random.InitState(randomSeed);
@@ -86,7 +81,6 @@ public class SpireGenerator : MonoBehaviour
 
     public IEnumerator GenerateSpiresCoroutine()
     {
-        IsGenerating = true;
         placedAxials.Clear();
         placedWorld.Clear();
         firstPlayerSet = false;
@@ -100,13 +94,6 @@ public class SpireGenerator : MonoBehaviour
             remainNeutrals, Color.white, GlobalScore, pathMaxStepsExclusive, neutralMinDistDyn));
 
         yield return StartCoroutine(PlaceAIBiasedCoroutine(aiSpireCount));
-
-        // All spires placed
-        IsGenerating = false;
-        if (startTurnManagerOnComplete && TurnManager.inst != null && TurnManager.inst.CurrentPhase == TurnManager.Phase.Init)
-        {
-            TurnManager.inst.StartGame();
-        }
     }
 
     /// <summary>
