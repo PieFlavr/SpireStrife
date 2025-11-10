@@ -485,15 +485,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Please Edit Me please please please Please Edit Me please please please
-    Please Edit Me please please please Please Edit Me please please please Please
-    Edit Me please please please Please Edit Me please please please Please Edit
-    Me please please please Please Edit Me please please please Please Edit Me please
-    please please Please Edit Me please please please Please Edit Me please please
-    please Please Edit Me please please please Please Edit Me please please please
-    Please Edit Me please please please Please Edit Me please please please Please
-    Edit Me please please please Please Edit Me please please please Please Edit
-    Me please please please '
+  m_text: "[W]/[S] to move Camera Forward/Back\n[A]/[D] to move Camera Left/Right\n[Q]/[E]
+    to rotate Camera Left/Right\n[L] to pause/resume the game. \n[Left Click] to
+    select a Spire\n[Right Click] to send units to a Spire"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

@@ -25,13 +25,14 @@ public class PauseHandler : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Escape))
+        if (Input.GetKeyDown(KeyCode.L))
         {
             if (isPaused)
                 Resume();
             else
                 Pause();
         }
+
     }
 
     public void Pause()
@@ -41,9 +42,6 @@ public class PauseHandler : MonoBehaviour
 
         Time.timeScale = 0f;
         isPaused = true;
-
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
     }
 
     public void Resume()
@@ -53,9 +51,6 @@ public class PauseHandler : MonoBehaviour
 
         Time.timeScale = 1f;
         isPaused = false;
-
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
     }
 
     public void QuitGame()
