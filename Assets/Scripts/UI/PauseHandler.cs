@@ -32,6 +32,12 @@ public class PauseHandler : MonoBehaviour
             else
                 Pause();
         }
+
+        if (Input.GetKeyDown(KeyCode.Return))
+        {
+            Debug.Log("Enter key pressed - advancing level for testing purposes.");
+            LevelManager.inst.AdvanceLevel();
+        }
     }
 
     public void Pause()
