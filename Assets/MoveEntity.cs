@@ -17,6 +17,7 @@ public class MoveUnits : MonoBehaviour
     public float attractiveExponent = 1.0f;     // 1 = linear with distance
 
     private readonly Dictionary<Unit, Coroutine> _routines = new();
+    private readonly Dictionary<Unit, int> _killStep = new(); // waypoint index at which to destroy this unit
 
     private void Awake() => inst = this;
 
@@ -25,6 +26,25 @@ public class MoveUnits : MonoBehaviour
     {
         if (path == null || path.Length < 2) return 0;
         return path.Length - 1;
+    }
+
+    // Assign kill steps:
+    // - At most one unit is destroyed at each intermediate waypoint.
+    // - Any leftover units are destroyed at the final waypoint.
+    private void AssignKillSteps(List<Unit> group, Vector3[] path)
+    {
+        _killStep.Clear();
+        int edges = Mathf.Max(0, path.Length - 1);
+        if (edges == 0) return;
+
+        int idx = 0;
+        // Destroy one per intermediate waypoint 1..edges-1
+        for (int step = 1; step <= edges - 1 && idx < group.Count; step++, idx++)
+            _killStep[group[idx]] = step;
+
+        // Remaining units get destroyed at final step == edges
+        for (; idx < group.Count; idx++)
+            _killStep[group[idx]] = edges;
     }
 
     public bool MoveUnitsAlongPath(List<Unit> group, Vector3[] path, float groupSpeed = 0f, bool useMaxSpeedMovement = false)
@@ -48,6 +68,7 @@ public class MoveUnits : MonoBehaviour
         }
 
         units = group;
+        AssignKillSteps(group, path);
 
         int remaining = 0;
         foreach (var u in group)
@@ -88,6 +109,11 @@ public class MoveUnits : MonoBehaviour
     public IEnumerator MoveUnitAlongPath(Unit unit, Vector3[] path, float groupSpeed, bool useMaxSpeedMovement, Action onComplete)
     {
         const float arriveDist = 0.5f;
+        int edges = path.Length - 1;
+
+        // Safety: if no kill step assigned, default to final
+        if (!_killStep.TryGetValue(unit, out int killAtStep))
+            killAtStep = edges;
 
         for (int i = 1; i < path.Length; i++)
         {
@@ -119,12 +145,21 @@ public class MoveUnits : MonoBehaviour
                 unit.transform.localEulerAngles = new Vector3(0f, unit.heading, 0f);
             }
 
-            // Snap to the reached waypoint
+            // Snap to the reached waa/ Convert world waypoint to local for position storage
             unit.transform.position = waypoint;
             unit.position = unit.transform.localPosition;
 
-            // NOTE: Attrition is now handled by Units.ApplyTravelAttrition() after movement completes
-            // The old per-GameObject destruction logic has been removed
+            // Waypoint reached: destroy if this is the unit’s assigned kill step
+            if (i == killAtStep && i < edges)
+            {
+                CleanupAndDestroy(unit, clearSelection: false);
+                if (units.Count == 0)
+                {
+                    UiMgr.inst.ClearSelection();
+                }
+                onComplete?.Invoke();
+                yield break; // stop this coroutine, unit is gone
+            }
         }
         
         bool shouldDestroy = CheckForCollisions(unit);
@@ -140,6 +175,7 @@ public class MoveUnits : MonoBehaviour
             unit.speed = 0f;
             if (_routines.TryGetValue(unit, out var co) && co != null) StopCoroutine(co);
             _routines.Remove(unit);
+            _killStep.Remove(unit);
         }
         onComplete?.Invoke();
     }
@@ -173,6 +209,7 @@ public class MoveUnits : MonoBehaviour
 
         if (_routines.TryGetValue(unit, out var co) && co != null) StopCoroutine(co);
         _routines.Remove(unit);
+        _killStep.Remove(unit);
         units.Remove(unit);
 
         // Your project-specific teardown

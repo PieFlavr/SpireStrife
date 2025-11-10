@@ -9,15 +9,7 @@ public class UiMgr : MonoBehaviour
     // Start is called before the first frame update
     public HexCell startCell;
     public HexCell targetCell;
-    
-    /// <summary>
-    /// Singleton instance of UiMgr. Handles player input and command issuing.
-    /// </summary>
-    public static UiMgr Instance { get; private set; }
-    
-    // Legacy compatibility - will be removed in future
-    public static UiMgr inst => Instance;
-    
+    public static UiMgr inst;
     public SpireConstruct selectedSpire;
     public SpireConstruct targetSpire;
 
@@ -32,27 +24,9 @@ public class UiMgr : MonoBehaviour
     [HideInInspector] public bool allowCommandWhenPlayerInputDisabled = false;
     // When set, overrides how many units to spawn/send on the next command
     [HideInInspector] public int? sendOverrideForNextCommand = null;
-    
     public void Awake()
     {
-        // Enforce singleton pattern - destroy duplicates
-        if (Instance != null && Instance != this)
-        {
-            Debug.LogWarning($"[UiMgr] Duplicate instance detected, destroying {gameObject.name}");
-            Destroy(gameObject);
-            return;
-        }
-        
-        Instance = this;
-    }
-    
-    private void OnDestroy()
-    {
-        // Clean up singleton reference
-        if (Instance == this)
-        {
-            Instance = null;
-        }
+        inst = this;
     }
     void Start()
     {

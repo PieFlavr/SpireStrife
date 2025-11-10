@@ -133,17 +133,14 @@ public class Units : GridObject
     }
 
     /// <summary>
-    /// Calculates how many units will survive traveling along a path.
-    /// Units are lost based on tile traversal costs (typically 1 per tile).
-    /// Does NOT account for combat at destination - only travel attrition.
+    /// Calculates how many units will arrive at the destination after traversing a path.
+    /// First cell in path is the starting position (no cost).
+    /// Units are lost based on tile traversal costs along the path.
+    /// Does not account for combat.
     /// </summary>
-    /// <param name="path">Complete path from source to destination (includes both endpoints)</param>
-    /// <param name="startingCount">Initial number of units in the group</param>
-    /// <returns>Number of units remaining at destination, or -1 if path is invalid (blocked tiles)</returns>
-    /// <example>
-    /// Path with 7 cells means 6 tiles to traverse.
-    /// 10 units traveling 6 tiles will arrive with 4 units (10 - 6 = 4).
-    /// </example>
+    /// <param name="path">Complete path from source to destination</param>
+    /// <param name="startingCount">Initial unit count</param>
+    /// <returns>Number of units remaining at destination, or -1 if path is invalid</returns>
     public static int CalculateRemainingUnits(List<HexCell> path, int startingCount)
     {
         if (path == null || path.Count <= 1)
@@ -158,20 +155,14 @@ public class Units : GridObject
                 .FirstOrDefault() as Tile;
 
             if (tile == null || !tile.CanEnter())
-            {
-                Debug.LogWarning($"[Units] Path blocked at tile {i} - cannot calculate remaining units");
                 return -1; // Invalid path
-            }
 
             // Units lost = ceil(traversal cost)
             int unitsLost = Mathf.CeilToInt(tile.GetMovementCost());
             remainingUnits -= unitsLost;
 
             if (remainingUnits <= 0)
-            {
-                Debug.Log($"[Units] All units eliminated during travel at tile {i}/{path.Count}");
                 return 0; // All units eliminated during travel
-            }
         }
 
         return remainingUnits;
@@ -303,32 +294,6 @@ public class Units : GridObject
     }
 
     /// <summary>
-    /// Apply travel attrition to this unit group based on tiles traversed.
-    /// Units are lost during travel (1 unit per tile traversed).
-    /// Called during movement execution to reduce unit count progressively.
-    /// </summary>
-    /// <param name="tilesTraversed">Number of tiles this group has traveled</param>
-    public void ApplyTravelAttrition(int tilesTraversed)
-    {
-        if (tilesTraversed <= 0) return;
-        
-        int unitsLost = tilesTraversed; // 1 unit lost per tile (can be modified for balance)
-        unitCount -= unitsLost;
-        
-        Debug.Log($"[Attrition] Team {teamID} lost {unitsLost} units traveling {tilesTraversed} tiles. {unitCount} units remaining.");
-        
-        // Update visual representation to match new count
-        UpdateVisualsFromCount();
-        
-        // Destroy this group if all units lost during travel
-        if (unitCount <= 0)
-        {
-            Debug.Log($"[Attrition] Unit group (Team {teamID}) eliminated during travel");
-            DestroyUnitGroup();
-        }
-    }
-
-    /// <summary>
     /// Executes the queued movement, actually moving units along the path.
     /// Called during turn resolution after all commands are queued.
     /// </summary>
@@ -337,21 +302,17 @@ public class Units : GridObject
         if (state != UnitState.Traversing || plannedPath == null)
             return;
 
-        int tilesTraversed = plannedPath.Count - 1; // Distance traveled (excluding starting position)
         int finalCount = CalculateRemainingUnits(plannedPath, unitCount);
 
         if (finalCount <= 0)
         {
-            Debug.Log($"[Units] All units eliminated during movement (traveled {tilesTraversed} tiles)");
+            Debug.Log($"All units eliminated during movement");
             DestroyUnitGroup();
             return;
         }
 
-        // Apply attrition to unit count and update visuals
         unitCount = finalCount;
-        UpdateVisualsFromCount();
-        
-        Debug.Log($"[Units] Team {teamID} traveled {tilesTraversed} tiles. {unitCount} units arrived at destination.");
+        UpdateVisualsFromCount(); // ensure visuals match casualties
 
         // Move to destination cell
         HexCell destination = plannedPath[plannedPath.Count - 1];
