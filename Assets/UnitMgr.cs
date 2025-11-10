@@ -3,7 +3,14 @@ using UnityEngine;
 
 public class UnitMgr : MonoBehaviour
 {
-    public static UnitMgr inst;
+    /// <summary>
+    /// Singleton instance of UnitMgr. Manages unit visuals and hex packing.
+    /// </summary>
+    public static UnitMgr Instance { get; private set; }
+    
+    // Legacy compatibility - will be removed in future
+    public static UnitMgr inst => Instance;
+    
     public List<Unit> units = new List<Unit>();
     public GameObject unitPrefab;
 
@@ -13,7 +20,27 @@ public class UnitMgr : MonoBehaviour
     public float yHeight = 0f;   // unit Y placement
     public float edgeMargin = 0.05f;
 
-    void Start() { inst = this; }
+    void Start() 
+    { 
+        // Enforce singleton pattern - destroy duplicates
+        if (Instance != null && Instance != this)
+        {
+            Debug.LogWarning($"[UnitMgr] Duplicate instance detected, destroying {gameObject.name}");
+            Destroy(gameObject);
+            return;
+        }
+        
+        Instance = this;
+    }
+    
+    private void OnDestroy()
+    {
+        // Clean up singleton reference
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
 
     struct DHDS
     {

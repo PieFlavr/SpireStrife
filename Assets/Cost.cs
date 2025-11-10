@@ -12,7 +12,6 @@ public class CostText : MonoBehaviour
     public int displayTeamID = 0;
 
     private SpireConstruct _spire;
-    private int _lastDisplayed = int.MinValue;
 
     void Start()
     {
@@ -27,9 +26,7 @@ public class CostText : MonoBehaviour
     {
         if (_spire == null || costText == null) return;
 
-        // General remaining to capture, independent of team:
-        // remaining = max(0, costToClaim - max(claimProgress across all teams))
-        int remaining = 0;
+        // Display the remaining garrison at this spire
         costText.text = _spire.remainingGarrison.ToString();
 
         // Billboard toward camera
