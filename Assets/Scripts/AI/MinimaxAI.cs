@@ -154,6 +154,10 @@ public class MinimaxAI : MonoBehaviour
         else
         {
             Debug.Log("[MinimaxAI] No valid move found (may have no units or all moves blocked)");
+            if (ScoreMgr.inst != null)
+            {
+                ScoreMgr.inst.SetAiStuckAndCheckEnd();
+            }
         }
 
         IsBusy = false;

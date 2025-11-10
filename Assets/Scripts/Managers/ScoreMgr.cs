@@ -15,6 +15,7 @@ public class ScoreMgr : MonoBehaviour
 	public bool isFinalized => result != GameResult.None;
 
 	[Header("Debug Snapshot")]
+	public bool aiIsStuck = false;
 	public int lastPlayerUnits;
 	public int lastAiUnits;
 	public int lastPlayerSpires;
@@ -46,6 +47,15 @@ public class ScoreMgr : MonoBehaviour
 		result = GameResult.None;
 		lastPlayerUnits = lastAiUnits = lastPlayerSpires = lastAiSpires = 0;
 		startedPlayObserved = false;
+		aiIsStuck = false;
+	}
+
+	public void SetAiStuckAndCheckEnd()
+	{
+		if (isFinalized) return;
+		Debug.Log("[ScoreMgr] AI is stuck with no valid moves. Checking for game end.");
+		aiIsStuck = true;
+		CheckAndFinalizeIfDone();
 	}
 
 	// Check end condition:
@@ -75,8 +85,10 @@ public class ScoreMgr : MonoBehaviour
 				return; // both zero and never saw >0 yet: don't finalize at frame 0
 		}
 
+		int effectiveAiUnits = aiIsStuck ? 0 : lastAiUnits;
+
 		// 1. One-sided finish immediate-win rule
-		if (lastPlayerUnits == 0 && lastAiUnits > 0)
+		if (lastPlayerUnits == 0 && effectiveAiUnits > 0)
 		{
 			if (lastAiSpires > lastPlayerSpires)
 			{
@@ -88,12 +100,12 @@ public class ScoreMgr : MonoBehaviour
 			// else: keep running until AI also finishes units
 		}
 		// 2. One-sided Player win
-		else if (lastAiUnits == 0 && lastPlayerUnits > 0)
+		else if (effectiveAiUnits == 0 && lastPlayerUnits > 0)
 		{
 			if (lastPlayerSpires > lastAiSpires)
 			{
 				result = GameResult.PlayerWin;
-				Debug.Log("Result: Player wins (AI finished units and Player already has more spires)");
+				Debug.Log(aiIsStuck ? "Result: Player wins (AI has no valid moves and Player has more spires)" : "Result: Player wins (AI finished units and Player already has more spires)");
                 NotifyMatchEnd();
                 return;
 			}
@@ -101,22 +113,22 @@ public class ScoreMgr : MonoBehaviour
 		}
 
 		// 3. Both finished -> final comparison including draw
-		if (lastPlayerUnits == 0 && lastAiUnits == 0)
+		if (lastPlayerUnits == 0 && effectiveAiUnits == 0)
 		{
 			if (lastPlayerSpires > lastAiSpires)
 			{
 				result = GameResult.PlayerWin;
-				Debug.Log("Result: Player wins (more spires when both sides finished units)");
+				Debug.Log(aiIsStuck ? "Result: Player wins (more spires after AI became stuck)" : "Result: Player wins (more spires when both sides finished units)");
 			}
 			else if (lastAiSpires > lastPlayerSpires)
 			{
 				result = GameResult.AiWin;
-				Debug.Log("Result: AI wins (more spires when both sides finished units)");
+				Debug.Log(aiIsStuck ? "Result: AI wins (more spires after AI became stuck)" : "Result: AI wins (more spires when both sides finished units)");
 			}
 			else
 			{
 				result = GameResult.Draw;
-				Debug.Log("Result: Draw (equal spires when both sides finished units)");
+				Debug.Log(aiIsStuck ? "Result: Draw (equal spires after AI became stuck)" : "Result: Draw (equal spires when both sides finished units)");
 			}
             NotifyMatchEnd();
         }
