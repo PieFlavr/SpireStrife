@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.44657874, g: 0.49641275, b: 0.5748171, a: 1}
+  m_IndirectSpecularColor: {r: 0.44657898, g: 0.4964133, b: 0.5748178, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -436,7 +436,7 @@ MonoBehaviour:
   creditsPanel: {fileID: 376445942}
   fadeCanvasGroup: {fileID: 700751434}
   fadeDuration: 0.5
-  gameplaySceneName: HexGridTest
+  gameplaySceneName: Level1
 --- !u!224 &168430926 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 7449862398882633438, guid: f2e030b8c4d364692bd0e921ddfac216, type: 3}
